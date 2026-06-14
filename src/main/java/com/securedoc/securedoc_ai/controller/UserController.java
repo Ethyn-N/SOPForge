@@ -1,6 +1,5 @@
 package com.securedoc.securedoc_ai.controller;
 
-import com.securedoc.securedoc_ai.dto.RegisterRequest;
 import com.securedoc.securedoc_ai.dto.UserResponse;
 import com.securedoc.securedoc_ai.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -14,11 +13,6 @@ import java.util.List;
 public class UserController {
 
     private final UserService userService;
-
-    @PostMapping("/register")
-    public UserResponse registerUser(@RequestBody RegisterRequest request) {
-        return userService.registerUser(request);
-    }
 
     @GetMapping
     public List<UserResponse> getUsers() {

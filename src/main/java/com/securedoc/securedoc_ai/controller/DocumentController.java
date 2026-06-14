@@ -2,19 +2,17 @@ package com.securedoc.securedoc_ai.controller;
 
 import com.securedoc.securedoc_ai.model.Document;
 import com.securedoc.securedoc_ai.service.DocumentService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
 @RestController
+@RequiredArgsConstructor
 @RequestMapping("/api/documents")
 public class DocumentController {
 
     private final DocumentService documentService;
-
-    public DocumentController(DocumentService documentService) {
-        this.documentService = documentService;
-    }
 
     @GetMapping
     public List<Document> getDocuments() {
