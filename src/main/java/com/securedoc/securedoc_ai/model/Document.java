@@ -18,6 +18,11 @@ public class Document {
     private Long id;
 
     @Setter
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "owner_id", nullable = false)
+    private User owner;
+
+    @Setter
     private String originalFileName;
     @Setter
     private String storedFileName;
