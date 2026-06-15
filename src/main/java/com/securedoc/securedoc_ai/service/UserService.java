@@ -25,6 +25,7 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final JwtService jwtService;
 
     public UserResponse registerUser(RegisterRequest request) {
         if (request.getEmail() == null || request.getEmail().isBlank()) {
@@ -74,7 +75,10 @@ public class UserService {
             throw new AuthException(LOGIN_FAILED_MESSAGE);
         }
 
+        String token = jwtService.generateToken(user);
+
         return new AuthResponse(
+                token,
                 user.getId(),
                 user.getEmail(),
                 user.getRole(),
