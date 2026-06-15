@@ -34,6 +34,14 @@ public class Document {
     private String storageUrl;
     @Setter
     private LocalDateTime uploadedAt;
+    @Setter
+    @Lob
+    private String extractedText;
+    @Setter
+    private LocalDateTime textExtractedAt;
+    @Setter
+    @Enumerated(EnumType.STRING)
+    private ExtractionStatus extractionStatus = ExtractionStatus.PENDING;
 
     public Document(String originalFileName, String storedFileName, String fileType, Long fileSize, String storageUrl) {
         this.originalFileName = originalFileName;

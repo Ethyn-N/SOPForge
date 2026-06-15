@@ -2,10 +2,18 @@ package com.securedoc.securedoc_ai.controller;
 
 import com.securedoc.securedoc_ai.config.StorageProperties;
 import com.securedoc.securedoc_ai.model.Document;
+import com.securedoc.securedoc_ai.model.ExtractionStatus;
 import com.securedoc.securedoc_ai.model.User;
 import com.securedoc.securedoc_ai.repository.DocumentRepository;
 import com.securedoc.securedoc_ai.repository.UserRepository;
 import com.securedoc.securedoc_ai.service.JwtService;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,9 +26,11 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.util.FileSystemUtils;
 
 import java.io.IOException;
+import java.io.ByteArrayOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -81,8 +91,8 @@ class DocumentControllerIntegrationTest {
     void uploadDocumentStoresFileAndReturnsSafeDocumentResponse() throws Exception {
         MockMultipartFile file = new MockMultipartFile(
                 "file",
-                "policy.pdf",
-                "application/pdf",
+                "policy.txt",
+                "text/plain",
                 "policy content".getBytes()
         );
 
@@ -92,13 +102,16 @@ class DocumentControllerIntegrationTest {
                         .contentType(MediaType.MULTIPART_FORM_DATA))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").exists())
-                .andExpect(jsonPath("$.originalFileName").value("policy.pdf"))
+                .andExpect(jsonPath("$.originalFileName").value("policy.txt"))
                 .andExpect(jsonPath("$.storedFileName").exists())
-                .andExpect(jsonPath("$.storedFileName").value(not("policy.pdf")))
-                .andExpect(jsonPath("$.fileType").value("application/pdf"))
+                .andExpect(jsonPath("$.storedFileName").value(not("policy.txt")))
+                .andExpect(jsonPath("$.fileType").value("text/plain"))
                 .andExpect(jsonPath("$.fileSize").value(14))
                 .andExpect(jsonPath("$.storageUrl").exists())
                 .andExpect(jsonPath("$.uploadedAt").exists())
+                .andExpect(jsonPath("$.extractedText").value("policy content"))
+                .andExpect(jsonPath("$.textExtractedAt").exists())
+                .andExpect(jsonPath("$.extractionStatus").value("SUCCESS"))
                 .andExpect(jsonPath("$.ownerId").value(userOne.getId()))
                 .andExpect(jsonPath("$.ownerEmail").value(userOne.getEmail()))
                 .andExpect(jsonPath("$.owner").doesNotExist())
@@ -109,10 +122,48 @@ class DocumentControllerIntegrationTest {
         Document savedDocument = documentRepository.findByOwner(userOne).getFirst();
         Path storedFilePath = Path.of(storageProperties.getUploadDir()).resolve(savedDocument.getStoredFileName());
 
-        assertNotEquals("policy.pdf", savedDocument.getStoredFileName());
+        assertNotEquals("policy.txt", savedDocument.getStoredFileName());
         assertTrue(Files.exists(storedFilePath));
         assertEquals("policy content", Files.readString(storedFilePath));
         assertEquals("/uploads/documents/" + savedDocument.getStoredFileName(), savedDocument.getStorageUrl());
+        assertEquals("policy content", savedDocument.getExtractedText());
+        assertEquals(ExtractionStatus.SUCCESS, savedDocument.getExtractionStatus());
+    }
+
+    @Test
+    void uploadDocumentExtractsPdfText() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "handbook.pdf",
+                "application/pdf",
+                createPdf()
+        );
+
+        mockMvc.perform(multipart("/api/documents")
+                        .file(file)
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.extractionStatus").value("SUCCESS"))
+                .andExpect(jsonPath("$.textExtractedAt").exists())
+                .andExpect(jsonPath("$.extractedText", containsString("Employee handbook text")));
+    }
+
+    @Test
+    void uploadDocumentExtractsDocxText() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "handbook.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                createDocx()
+        );
+
+        mockMvc.perform(multipart("/api/documents")
+                        .file(file)
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.extractionStatus").value("SUCCESS"))
+                .andExpect(jsonPath("$.textExtractedAt").exists())
+                .andExpect(jsonPath("$.extractedText", containsString("DOCX handbook text")));
     }
 
     @Test
@@ -221,5 +272,38 @@ class DocumentControllerIntegrationTest {
 
     private String bearer(String token) {
         return "Bearer " + token;
+    }
+
+    private byte[] createPdf() throws IOException {
+        try (
+                PDDocument document = new PDDocument();
+                ByteArrayOutputStream outputStream = new ByteArrayOutputStream()
+        ) {
+            PDPage page = new PDPage();
+            document.addPage(page);
+
+            try (PDPageContentStream contentStream = new PDPageContentStream(document, page)) {
+                contentStream.beginText();
+                contentStream.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 12);
+                contentStream.newLineAtOffset(72, 720);
+                contentStream.showText("Employee handbook text");
+                contentStream.endText();
+            }
+
+            document.save(outputStream);
+            return outputStream.toByteArray();
+        }
+    }
+
+    private byte[] createDocx() throws IOException {
+        try (
+                XWPFDocument document = new XWPFDocument();
+                ByteArrayOutputStream outputStream = new ByteArrayOutputStream()
+        ) {
+            XWPFParagraph paragraph = document.createParagraph();
+            paragraph.createRun().setText("DOCX handbook text");
+            document.write(outputStream);
+            return outputStream.toByteArray();
+        }
     }
 }

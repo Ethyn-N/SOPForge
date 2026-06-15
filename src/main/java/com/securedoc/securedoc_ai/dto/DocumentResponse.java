@@ -1,6 +1,7 @@
 package com.securedoc.securedoc_ai.dto;
 
 import com.securedoc.securedoc_ai.model.Document;
+import com.securedoc.securedoc_ai.model.ExtractionStatus;
 import lombok.Getter;
 
 import java.time.LocalDateTime;
@@ -15,6 +16,9 @@ public class DocumentResponse {
     private final Long fileSize;
     private final String storageUrl;
     private final LocalDateTime uploadedAt;
+    private final String extractedText;
+    private final LocalDateTime textExtractedAt;
+    private final ExtractionStatus extractionStatus;
     private final Long ownerId;
     private final String ownerEmail;
 
@@ -26,6 +30,9 @@ public class DocumentResponse {
         this.fileSize = document.getFileSize();
         this.storageUrl = document.getStorageUrl();
         this.uploadedAt = document.getUploadedAt();
+        this.extractedText = document.getExtractedText();
+        this.textExtractedAt = document.getTextExtractedAt();
+        this.extractionStatus = document.getExtractionStatus();
         this.ownerId = document.getOwner().getId();
         this.ownerEmail = document.getOwner().getEmail();
     }

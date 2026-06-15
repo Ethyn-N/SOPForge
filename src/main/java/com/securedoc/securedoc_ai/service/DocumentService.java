@@ -2,9 +2,15 @@ package com.securedoc.securedoc_ai.service;
 
 import com.securedoc.securedoc_ai.config.StorageProperties;
 import com.securedoc.securedoc_ai.model.Document;
+import com.securedoc.securedoc_ai.model.ExtractionStatus;
 import com.securedoc.securedoc_ai.model.User;
 import com.securedoc.securedoc_ai.repository.DocumentRepository;
 import lombok.RequiredArgsConstructor;
+import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.text.PDFTextStripper;
+import org.apache.poi.xwpf.extractor.XWPFWordExtractor;
+import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -12,6 +18,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.*;
 
@@ -73,6 +80,7 @@ public class DocumentService {
         );
         document.setOwner(user);
         document.setUploadedAt(LocalDateTime.now());
+        extractText(document, storedFilePath);
 
         return documentRepository.save(document);
     }
@@ -141,5 +149,43 @@ public class DocumentService {
         }
 
         return normalizedFileName;
+    }
+
+    private void extractText(Document document, Path storedFilePath) {
+        document.setExtractionStatus(ExtractionStatus.PENDING);
+
+        try {
+            String extractedText = switch (document.getFileType()) {
+                case "text/plain" -> Files.readString(storedFilePath, StandardCharsets.UTF_8);
+                case "application/pdf" -> extractPdfText(storedFilePath);
+                case "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ->
+                        extractDocxText(storedFilePath);
+                default -> throw new IllegalStateException("Unsupported file type.");
+            };
+
+            document.setExtractedText(extractedText);
+            document.setTextExtractedAt(LocalDateTime.now());
+            document.setExtractionStatus(ExtractionStatus.SUCCESS);
+        } catch (Exception exception) {
+            document.setExtractedText(null);
+            document.setTextExtractedAt(LocalDateTime.now());
+            document.setExtractionStatus(ExtractionStatus.FAILED);
+        }
+    }
+
+    private String extractPdfText(Path storedFilePath) throws IOException {
+        try (PDDocument document = Loader.loadPDF(storedFilePath.toFile())) {
+            return new PDFTextStripper().getText(document);
+        }
+    }
+
+    private String extractDocxText(Path storedFilePath) throws IOException {
+        try (
+                InputStream inputStream = Files.newInputStream(storedFilePath);
+                XWPFDocument document = new XWPFDocument(inputStream);
+                XWPFWordExtractor extractor = new XWPFWordExtractor(document)
+        ) {
+            return extractor.getText();
+        }
     }
 }
