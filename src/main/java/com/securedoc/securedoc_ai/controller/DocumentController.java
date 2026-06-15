@@ -5,8 +5,10 @@ import com.securedoc.securedoc_ai.model.Document;
 import com.securedoc.securedoc_ai.model.User;
 import com.securedoc.securedoc_ai.service.DocumentService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -34,12 +36,12 @@ public class DocumentController {
         return new DocumentResponse(document);
     }
 
-    @PostMapping
-    public DocumentResponse addDocument(
-            @RequestBody Document document,
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public DocumentResponse uploadDocument(
+            @RequestParam("file") MultipartFile file,
             @AuthenticationPrincipal User user
     ) {
-        Document savedDocument = documentService.addDocument(document, user);
+        Document savedDocument = documentService.uploadDocument(file, user);
         return new DocumentResponse(savedDocument);
     }
 

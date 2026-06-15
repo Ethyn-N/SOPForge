@@ -1,5 +1,6 @@
 package com.securedoc.securedoc_ai.controller;
 
+import com.securedoc.securedoc_ai.config.StorageProperties;
 import com.securedoc.securedoc_ai.model.Document;
 import com.securedoc.securedoc_ai.model.User;
 import com.securedoc.securedoc_ai.repository.DocumentRepository;
@@ -13,10 +14,20 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.util.FileSystemUtils;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -29,7 +40,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.datasource.username=sa",
         "spring.datasource.password=",
         "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.jpa.show-sql=false"
+        "spring.jpa.show-sql=false",
+        "securedoc.storage.upload-dir=target/test-uploads/documents"
 })
 class DocumentControllerIntegrationTest {
 
@@ -45,13 +57,17 @@ class DocumentControllerIntegrationTest {
     @Autowired
     private JwtService jwtService;
 
+    @Autowired
+    private StorageProperties storageProperties;
+
     private User userOne;
     private User userTwo;
     private String userOneToken;
     private String userTwoToken;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws IOException {
+        FileSystemUtils.deleteRecursively(Path.of(storageProperties.getUploadDir()));
         documentRepository.deleteAll();
         userRepository.deleteAll();
 
@@ -62,7 +78,45 @@ class DocumentControllerIntegrationTest {
     }
 
     @Test
-    void addDocumentReturnsSafeDocumentResponse() throws Exception {
+    void uploadDocumentStoresFileAndReturnsSafeDocumentResponse() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "policy.pdf",
+                "application/pdf",
+                "policy content".getBytes()
+        );
+
+        mockMvc.perform(multipart("/api/documents")
+                        .file(file)
+                        .header("Authorization", bearer(userOneToken))
+                        .contentType(MediaType.MULTIPART_FORM_DATA))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").exists())
+                .andExpect(jsonPath("$.originalFileName").value("policy.pdf"))
+                .andExpect(jsonPath("$.storedFileName").exists())
+                .andExpect(jsonPath("$.storedFileName").value(not("policy.pdf")))
+                .andExpect(jsonPath("$.fileType").value("application/pdf"))
+                .andExpect(jsonPath("$.fileSize").value(14))
+                .andExpect(jsonPath("$.storageUrl").exists())
+                .andExpect(jsonPath("$.uploadedAt").exists())
+                .andExpect(jsonPath("$.ownerId").value(userOne.getId()))
+                .andExpect(jsonPath("$.ownerEmail").value(userOne.getEmail()))
+                .andExpect(jsonPath("$.owner").doesNotExist())
+                .andExpect(jsonPath("$.password").doesNotExist())
+                .andExpect(jsonPath("$.enabled").doesNotExist())
+                .andExpect(jsonPath("$.authorities").doesNotExist());
+
+        Document savedDocument = documentRepository.findByOwner(userOne).getFirst();
+        Path storedFilePath = Path.of(storageProperties.getUploadDir()).resolve(savedDocument.getStoredFileName());
+
+        assertNotEquals("policy.pdf", savedDocument.getStoredFileName());
+        assertTrue(Files.exists(storedFilePath));
+        assertEquals("policy content", Files.readString(storedFilePath));
+        assertEquals("/uploads/documents/" + savedDocument.getStoredFileName(), savedDocument.getStorageUrl());
+    }
+
+    @Test
+    void jsonDocumentCreationIsRejected() throws Exception {
         mockMvc.perform(post("/api/documents")
                         .header("Authorization", bearer(userOneToken))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -75,20 +129,39 @@ class DocumentControllerIntegrationTest {
                                   "storageUrl": "/uploads/abc-123.pdf"
                                 }
                                 """))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").exists())
-                .andExpect(jsonPath("$.originalFileName").value("policy.pdf"))
-                .andExpect(jsonPath("$.storedFileName").value("abc-123.pdf"))
-                .andExpect(jsonPath("$.fileType").value("application/pdf"))
-                .andExpect(jsonPath("$.fileSize").value(42))
-                .andExpect(jsonPath("$.storageUrl").value("/uploads/abc-123.pdf"))
-                .andExpect(jsonPath("$.uploadedAt").exists())
-                .andExpect(jsonPath("$.ownerId").value(userOne.getId()))
-                .andExpect(jsonPath("$.ownerEmail").value(userOne.getEmail()))
-                .andExpect(jsonPath("$.owner").doesNotExist())
-                .andExpect(jsonPath("$.password").doesNotExist())
-                .andExpect(jsonPath("$.enabled").doesNotExist())
-                .andExpect(jsonPath("$.authorities").doesNotExist());
+                .andExpect(status().isUnsupportedMediaType());
+    }
+
+    @Test
+    void uploadDocumentRejectsUnsupportedFileType() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "script.exe",
+                "application/x-msdownload",
+                "binary".getBytes()
+        );
+
+        mockMvc.perform(multipart("/api/documents")
+                        .file(file)
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Unsupported file type."));
+    }
+
+    @Test
+    void uploadDocumentRejectsMismatchedFileExtension() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "script.exe",
+                "application/pdf",
+                "not really a pdf".getBytes()
+        );
+
+        mockMvc.perform(multipart("/api/documents")
+                        .file(file)
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Unsupported file type."));
     }
 
     @Test
