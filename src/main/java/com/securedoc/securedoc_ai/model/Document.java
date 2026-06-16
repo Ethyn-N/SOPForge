@@ -35,7 +35,7 @@ public class Document {
     @Setter
     private LocalDateTime uploadedAt;
     @Setter
-    @Lob
+    @Column(columnDefinition = "TEXT")
     private String extractedText;
     @Setter
     private LocalDateTime textExtractedAt;
@@ -50,6 +50,7 @@ public class Document {
         this.fileSize = fileSize;
         this.storageUrl = storageUrl;
         this.uploadedAt = LocalDateTime.now();
+        this.extractionStatus = ExtractionStatus.PENDING;
     }
 
 }

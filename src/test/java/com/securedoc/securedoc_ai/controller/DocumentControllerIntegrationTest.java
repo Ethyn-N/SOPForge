@@ -30,7 +30,6 @@ import java.io.ByteArrayOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -49,7 +48,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.datasource.driver-class-name=org.h2.Driver",
         "spring.datasource.username=sa",
         "spring.datasource.password=",
-        "spring.jpa.hibernate.ddl-auto=create-drop",
+        "spring.jpa.hibernate.ddl-auto=validate",
         "spring.jpa.show-sql=false",
         "securedoc.storage.upload-dir=target/test-uploads/documents"
 })
@@ -109,7 +108,7 @@ class DocumentControllerIntegrationTest {
                 .andExpect(jsonPath("$.fileSize").value(14))
                 .andExpect(jsonPath("$.storageUrl").exists())
                 .andExpect(jsonPath("$.uploadedAt").exists())
-                .andExpect(jsonPath("$.extractedText").value("policy content"))
+                .andExpect(jsonPath("$.extractedText").doesNotExist())
                 .andExpect(jsonPath("$.textExtractedAt").exists())
                 .andExpect(jsonPath("$.extractionStatus").value("SUCCESS"))
                 .andExpect(jsonPath("$.ownerId").value(userOne.getId()))
@@ -145,7 +144,7 @@ class DocumentControllerIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.extractionStatus").value("SUCCESS"))
                 .andExpect(jsonPath("$.textExtractedAt").exists())
-                .andExpect(jsonPath("$.extractedText", containsString("Employee handbook text")));
+                .andExpect(jsonPath("$.extractedText").doesNotExist());
     }
 
     @Test
@@ -163,7 +162,7 @@ class DocumentControllerIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.extractionStatus").value("SUCCESS"))
                 .andExpect(jsonPath("$.textExtractedAt").exists())
-                .andExpect(jsonPath("$.extractedText", containsString("DOCX handbook text")));
+                .andExpect(jsonPath("$.extractedText").doesNotExist());
     }
 
     @Test
@@ -227,8 +226,46 @@ class DocumentControllerIntegrationTest {
                 .andExpect(jsonPath("$[0].id").value(ownDocument.getId()))
                 .andExpect(jsonPath("$[0].originalFileName").value("user-one-plan.pdf"))
                 .andExpect(jsonPath("$[0].ownerId").value(userOne.getId()))
+                .andExpect(jsonPath("$[0].extractedText").doesNotExist())
                 .andExpect(jsonPath("$[0]", not(org.hamcrest.Matchers.hasKey("owner"))))
                 .andExpect(jsonPath("$[0]", not(org.hamcrest.Matchers.hasKey("password"))));
+    }
+
+    @Test
+    void getDocumentTextReturnsExtractedTextForOwner() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "policy.txt",
+                "text/plain",
+                "only load this when needed".getBytes()
+        );
+
+        mockMvc.perform(multipart("/api/documents")
+                        .file(file)
+                        .header("Authorization", bearer(userOneToken)));
+
+        Document document = documentRepository.findByOwner(userOne).getFirst();
+
+        mockMvc.perform(get("/api/documents/{id}/text", document.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.documentId").value(document.getId()))
+                .andExpect(jsonPath("$.originalFileName").value("policy.txt"))
+                .andExpect(jsonPath("$.extractedText").value("only load this when needed"))
+                .andExpect(jsonPath("$.textExtractedAt").exists())
+                .andExpect(jsonPath("$.extractionStatus").value("SUCCESS"));
+    }
+
+    @Test
+    void getDocumentTextRejectsDocumentOwnedByAnotherUser() throws Exception {
+        Document otherUsersDocument = saveDocumentFor(userTwo, "private.pdf");
+
+        mockMvc.perform(get("/api/documents/{id}/text", otherUsersDocument.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(
+                        "document with id " + otherUsersDocument.getId() + " does not exist"
+                ));
     }
 
     @Test
@@ -254,6 +291,7 @@ class DocumentControllerIntegrationTest {
                 .andExpect(jsonPath("$.originalFileName").value("owner-visible.pdf"))
                 .andExpect(jsonPath("$.ownerId").value(userTwo.getId()))
                 .andExpect(jsonPath("$.ownerEmail").value(userTwo.getEmail()))
+                .andExpect(jsonPath("$.extractedText").doesNotExist())
                 .andExpect(jsonPath("$.owner").doesNotExist())
                 .andExpect(jsonPath("$.password").doesNotExist());
     }

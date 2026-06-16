@@ -1,6 +1,7 @@
 package com.securedoc.securedoc_ai.controller;
 
 import com.securedoc.securedoc_ai.dto.DocumentResponse;
+import com.securedoc.securedoc_ai.dto.DocumentTextResponse;
 import com.securedoc.securedoc_ai.model.Document;
 import com.securedoc.securedoc_ai.model.User;
 import com.securedoc.securedoc_ai.service.DocumentService;
@@ -34,6 +35,15 @@ public class DocumentController {
     ) {
         Document document = documentService.getDocument(id, user);
         return new DocumentResponse(document);
+    }
+
+    @GetMapping("/{id}/text")
+    public DocumentTextResponse getDocumentText(
+            @PathVariable Long id,
+            @AuthenticationPrincipal User user
+    ) {
+        Document document = documentService.getDocument(id, user);
+        return new DocumentTextResponse(document);
     }
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

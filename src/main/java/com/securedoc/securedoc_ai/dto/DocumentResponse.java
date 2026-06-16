@@ -16,7 +16,6 @@ public class DocumentResponse {
     private final Long fileSize;
     private final String storageUrl;
     private final LocalDateTime uploadedAt;
-    private final String extractedText;
     private final LocalDateTime textExtractedAt;
     private final ExtractionStatus extractionStatus;
     private final Long ownerId;
@@ -30,7 +29,6 @@ public class DocumentResponse {
         this.fileSize = document.getFileSize();
         this.storageUrl = document.getStorageUrl();
         this.uploadedAt = document.getUploadedAt();
-        this.extractedText = document.getExtractedText();
         this.textExtractedAt = document.getTextExtractedAt();
         this.extractionStatus = document.getExtractionStatus();
         this.ownerId = document.getOwner().getId();
