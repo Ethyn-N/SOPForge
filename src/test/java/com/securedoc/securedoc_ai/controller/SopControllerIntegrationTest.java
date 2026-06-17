@@ -30,8 +30,10 @@ import java.io.IOException;
 import java.nio.file.Path;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasSize;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -146,6 +148,52 @@ class SopControllerIntegrationTest {
         assertEquals(0, sopRepository.count());
     }
 
+    @Test
+    void getSopsOnlyReturnsAuthenticatedUsersSops() throws Exception {
+        Sop ownSop = saveSopFor(userOne, "User One SOP");
+        saveSopFor(userTwo, "User Two SOP");
+
+        mockMvc.perform(get("/api/sops")
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].id").value(ownSop.getId()))
+                .andExpect(jsonPath("$[0].title").value("User One SOP"))
+                .andExpect(jsonPath("$[0].ownerId").value(userOne.getId()))
+                .andExpect(jsonPath("$[0].ownerEmail").value(userOne.getEmail()))
+                .andExpect(jsonPath("$[0].status").value("DRAFT"));
+    }
+
+    @Test
+    void getSopAllowsOwner() throws Exception {
+        Sop ownSop = saveSopFor(userOne, "Owner SOP");
+
+        mockMvc.perform(get("/api/sops/{id}", ownSop.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(ownSop.getId()))
+                .andExpect(jsonPath("$.title").value("Owner SOP"))
+                .andExpect(jsonPath("$.purpose").value("Test purpose."))
+                .andExpect(jsonPath("$.scope").value("Test scope."))
+                .andExpect(jsonPath("$.procedure").value("1. Test procedure."))
+                .andExpect(jsonPath("$.roles").value("Server"))
+                .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andExpect(jsonPath("$.sourceDocumentId").value(ownSop.getSourceDocument().getId()))
+                .andExpect(jsonPath("$.ownerId").value(userOne.getId()));
+    }
+
+    @Test
+    void getSopRejectsSopOwnedByAnotherUser() throws Exception {
+        Sop otherUsersSop = saveSopFor(userTwo, "Private SOP");
+
+        mockMvc.perform(get("/api/sops/{id}", otherUsersSop.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(
+                        "sop with id " + otherUsersSop.getId() + " does not exist"
+                ));
+    }
+
     private void uploadTextDocument(String fileName, String content, String token) throws Exception {
         MockMultipartFile file = new MockMultipartFile(
                 "file",
@@ -172,6 +220,30 @@ class SopControllerIntegrationTest {
         document.setExtractionError("Could not parse PDF.");
 
         return documentRepository.save(document);
+    }
+
+    private Sop saveSopFor(User owner, String title) {
+        Document document = new Document(
+                title + ".txt",
+                "stored-" + title + ".txt",
+                "text/plain",
+                100L,
+                "/uploads/stored-" + title + ".txt"
+        );
+        document.setOwner(owner);
+        document.setExtractionStatus(ExtractionStatus.SUCCESS);
+        document.setExtractedText("Source text for " + title);
+        Document savedDocument = documentRepository.save(document);
+
+        return sopRepository.save(new Sop(
+                title,
+                "Test purpose.",
+                "Test scope.",
+                "1. Test procedure.",
+                "Server",
+                savedDocument,
+                owner
+        ));
     }
 
     private String bearer(String token) {

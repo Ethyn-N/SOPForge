@@ -8,14 +8,33 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/api/documents/{documentId}/sops")
+@RequestMapping("/api")
 public class SopController {
 
     private final SopService sopService;
 
-    @PostMapping("/generate")
+    @GetMapping("/sops")
+    public List<SopResponse> getSops(@AuthenticationPrincipal User user) {
+        return sopService.getSops(user)
+                .stream()
+                .map(SopResponse::new)
+                .toList();
+    }
+
+    @GetMapping("/sops/{id}")
+    public SopResponse getSop(
+            @PathVariable Long id,
+            @AuthenticationPrincipal User user
+    ) {
+        Sop sop = sopService.getSop(id, user);
+        return new SopResponse(sop);
+    }
+
+    @PostMapping("/documents/{documentId}/sops/generate")
     public SopResponse generateSop(
             @PathVariable Long documentId,
             @AuthenticationPrincipal User user

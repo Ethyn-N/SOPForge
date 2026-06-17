@@ -10,6 +10,8 @@ import com.securedoc.securedoc_ai.service.ai.GeneratedSopDraft;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+
 @RequiredArgsConstructor
 @Service
 public class SopService {
@@ -17,6 +19,17 @@ public class SopService {
     private final DocumentService documentService;
     private final SopRepository sopRepository;
     private final AiSopGenerator aiSopGenerator;
+
+    public List<Sop> getSops(User user) {
+        return sopRepository.findByOwner(user);
+    }
+
+    public Sop getSop(Long id, User user) {
+        return sopRepository.findByIdAndOwner(id, user)
+                .orElseThrow(() -> new IllegalStateException(
+                        "sop with id " + id + " does not exist"
+                ));
+    }
 
     public Sop generateSop(Long documentId, User user) {
         Document document = documentService.getDocument(documentId, user);
