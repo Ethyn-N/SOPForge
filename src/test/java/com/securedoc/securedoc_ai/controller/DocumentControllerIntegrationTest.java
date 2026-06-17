@@ -114,6 +114,7 @@ class DocumentControllerIntegrationTest {
                 .andExpect(jsonPath("$.extractedText").doesNotExist())
                 .andExpect(jsonPath("$.textExtractedAt").exists())
                 .andExpect(jsonPath("$.extractionStatus").value("SUCCESS"))
+                .andExpect(jsonPath("$.extractionError").doesNotExist())
                 .andExpect(jsonPath("$.ownerId").value(userOne.getId()))
                 .andExpect(jsonPath("$.ownerEmail").value(userOne.getEmail()))
                 .andExpect(jsonPath("$.owner").doesNotExist())
@@ -146,6 +147,7 @@ class DocumentControllerIntegrationTest {
                         .header("Authorization", bearer(userOneToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.extractionStatus").value("SUCCESS"))
+                .andExpect(jsonPath("$.extractionError").doesNotExist())
                 .andExpect(jsonPath("$.textExtractedAt").exists())
                 .andExpect(jsonPath("$.extractedText").doesNotExist());
     }
@@ -164,6 +166,26 @@ class DocumentControllerIntegrationTest {
                         .header("Authorization", bearer(userOneToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.extractionStatus").value("SUCCESS"))
+                .andExpect(jsonPath("$.extractionError").doesNotExist())
+                .andExpect(jsonPath("$.textExtractedAt").exists())
+                .andExpect(jsonPath("$.extractedText").doesNotExist());
+    }
+
+    @Test
+    void uploadDocumentStoresExtractionErrorWhenParsingFails() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "broken.pdf",
+                "application/pdf",
+                "not really a pdf".getBytes()
+        );
+
+        mockMvc.perform(multipart("/api/documents")
+                        .file(file)
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.extractionStatus").value("FAILED"))
+                .andExpect(jsonPath("$.extractionError").isNotEmpty())
                 .andExpect(jsonPath("$.textExtractedAt").exists())
                 .andExpect(jsonPath("$.extractedText").doesNotExist());
     }
@@ -256,7 +278,8 @@ class DocumentControllerIntegrationTest {
                 .andExpect(jsonPath("$.originalFileName").value("policy.txt"))
                 .andExpect(jsonPath("$.extractedText").value("only load this when needed"))
                 .andExpect(jsonPath("$.textExtractedAt").exists())
-                .andExpect(jsonPath("$.extractionStatus").value("SUCCESS"));
+                .andExpect(jsonPath("$.extractionStatus").value("SUCCESS"))
+                .andExpect(jsonPath("$.extractionError").doesNotExist());
     }
 
     @Test
@@ -329,7 +352,8 @@ class DocumentControllerIntegrationTest {
 
         mockMvc.perform(delete("/api/documents/{id}", document.getId())
                         .header("Authorization", bearer(userOneToken)))
-                .andExpect(status().isOk());
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
 
         assertTrue(Files.notExists(storedFilePath));
         assertTrue(documentRepository.findById(document.getId()).isEmpty());

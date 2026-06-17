@@ -84,10 +84,11 @@ public class DocumentController {
     }
 
     @DeleteMapping("/{id}")
-    public void deleteDocument(
+    public ResponseEntity<Void> deleteDocument(
             @PathVariable Long id,
             @AuthenticationPrincipal User user
     ) {
         documentService.deleteDocument(id, user);
+        return ResponseEntity.noContent().build();
     }
 }

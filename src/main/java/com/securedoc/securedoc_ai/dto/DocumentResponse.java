@@ -18,6 +18,7 @@ public class DocumentResponse {
     private final LocalDateTime uploadedAt;
     private final LocalDateTime textExtractedAt;
     private final ExtractionStatus extractionStatus;
+    private final String extractionError;
     private final Long ownerId;
     private final String ownerEmail;
 
@@ -31,6 +32,7 @@ public class DocumentResponse {
         this.uploadedAt = document.getUploadedAt();
         this.textExtractedAt = document.getTextExtractedAt();
         this.extractionStatus = document.getExtractionStatus();
+        this.extractionError = document.getExtractionError();
         this.ownerId = document.getOwner().getId();
         this.ownerEmail = document.getOwner().getEmail();
     }

@@ -191,13 +191,25 @@ public class DocumentService {
             };
 
             document.setExtractedText(extractedText);
+            document.setExtractionError(null);
             document.setTextExtractedAt(LocalDateTime.now());
             document.setExtractionStatus(ExtractionStatus.SUCCESS);
         } catch (Exception exception) {
             document.setExtractedText(null);
+            document.setExtractionError(getExtractionErrorMessage(exception));
             document.setTextExtractedAt(LocalDateTime.now());
             document.setExtractionStatus(ExtractionStatus.FAILED);
         }
+    }
+
+    private String getExtractionErrorMessage(Exception exception) {
+        String message = exception.getMessage();
+
+        if (message == null || message.isBlank()) {
+            return exception.getClass().getSimpleName();
+        }
+
+        return message;
     }
 
     private String extractPdfText(Path storedFilePath) throws IOException {

@@ -14,6 +14,7 @@ public class DocumentTextResponse {
     private final String extractedText;
     private final LocalDateTime textExtractedAt;
     private final ExtractionStatus extractionStatus;
+    private final String extractionError;
 
     public DocumentTextResponse(Document document) {
         this.documentId = document.getId();
@@ -21,5 +22,6 @@ public class DocumentTextResponse {
         this.extractedText = document.getExtractedText();
         this.textExtractedAt = document.getTextExtractedAt();
         this.extractionStatus = document.getExtractionStatus();
+        this.extractionError = document.getExtractionError();
     }
 }

@@ -38,6 +38,9 @@ public class Document {
     @Column(columnDefinition = "TEXT")
     private String extractedText;
     @Setter
+    @Column(columnDefinition = "TEXT")
+    private String extractionError;
+    @Setter
     private LocalDateTime textExtractedAt;
     @Setter
     @Enumerated(EnumType.STRING)
