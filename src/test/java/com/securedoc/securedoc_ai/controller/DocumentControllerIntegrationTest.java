@@ -36,6 +36,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -306,6 +307,59 @@ class DocumentControllerIntegrationTest {
                 .andExpect(jsonPath("$.message").value(
                         "document with id " + otherUsersDocument.getId() + " does not exist"
                 ));
+    }
+
+    @Test
+    void deleteDocumentRemovesStoredFileAndDatabaseRecordForOwner() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "policy.txt",
+                "text/plain",
+                "delete me".getBytes()
+        );
+
+        mockMvc.perform(multipart("/api/documents")
+                .file(file)
+                .header("Authorization", bearer(userOneToken)));
+
+        Document document = documentRepository.findByOwner(userOne).getFirst();
+        Path storedFilePath = Path.of(storageProperties.getUploadDir()).resolve(document.getStoredFileName());
+
+        assertTrue(Files.exists(storedFilePath));
+
+        mockMvc.perform(delete("/api/documents/{id}", document.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isOk());
+
+        assertTrue(Files.notExists(storedFilePath));
+        assertTrue(documentRepository.findById(document.getId()).isEmpty());
+    }
+
+    @Test
+    void deleteDocumentRejectsDocumentOwnedByAnotherUserAndKeepsStoredFile() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "private.txt",
+                "text/plain",
+                "keep me".getBytes()
+        );
+
+        mockMvc.perform(multipart("/api/documents")
+                .file(file)
+                .header("Authorization", bearer(userTwoToken)));
+
+        Document document = documentRepository.findByOwner(userTwo).getFirst();
+        Path storedFilePath = Path.of(storageProperties.getUploadDir()).resolve(document.getStoredFileName());
+
+        mockMvc.perform(delete("/api/documents/{id}", document.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(
+                        "document with id " + document.getId() + " does not exist"
+                ));
+
+        assertTrue(Files.exists(storedFilePath));
+        assertTrue(documentRepository.findById(document.getId()).isPresent());
     }
 
     @Test

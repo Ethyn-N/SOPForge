@@ -102,7 +102,23 @@ public class DocumentService {
                         "document with id " + id + " does not exist"
                 ));
 
+        deleteStoredFile(document);
         documentRepository.delete(document);
+    }
+
+    private void deleteStoredFile(Document document) {
+        Path uploadPath = Path.of(storageProperties.getUploadDir()).toAbsolutePath().normalize();
+        Path storedFilePath = uploadPath.resolve(document.getStoredFileName()).normalize();
+
+        if (!storedFilePath.startsWith(uploadPath)) {
+            throw new IllegalStateException("Document file could not be deleted.");
+        }
+
+        try {
+            Files.deleteIfExists(storedFilePath);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Document file could not be deleted.");
+        }
     }
 
     private void validateUpload(MultipartFile file) {
