@@ -38,6 +38,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -261,6 +263,44 @@ class DocumentControllerIntegrationTest {
         Document otherUsersDocument = saveDocumentFor(userTwo, "private.pdf");
 
         mockMvc.perform(get("/api/documents/{id}/text", otherUsersDocument.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(
+                        "document with id " + otherUsersDocument.getId() + " does not exist"
+                ));
+    }
+
+    @Test
+    void downloadDocumentReturnsStoredFileForOwner() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "policy.txt",
+                "text/plain",
+                "download me".getBytes()
+        );
+
+        mockMvc.perform(multipart("/api/documents")
+                .file(file)
+                .header("Authorization", bearer(userOneToken)));
+
+        Document document = documentRepository.findByOwner(userOne).getFirst();
+
+        mockMvc.perform(get("/api/documents/{id}/download", document.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", "text/plain"))
+                .andExpect(header().longValue("Content-Length", 11))
+                .andExpect(header().string("Content-Disposition", "attachment; filename=\"policy.txt\""))
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(header().string("X-Content-Type-Options", "nosniff"))
+                .andExpect(content().string("download me"));
+    }
+
+    @Test
+    void downloadDocumentRejectsDocumentOwnedByAnotherUser() throws Exception {
+        Document otherUsersDocument = saveDocumentFor(userTwo, "private.pdf");
+
+        mockMvc.perform(get("/api/documents/{id}/download", otherUsersDocument.getId())
                         .header("Authorization", bearer(userOneToken)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value(

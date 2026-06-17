@@ -48,6 +48,17 @@ public class DocumentService {
                 ));
     }
 
+    public Path getStoredFilePath(Document document) {
+        Path uploadPath = Path.of(storageProperties.getUploadDir()).toAbsolutePath().normalize();
+        Path storedFilePath = uploadPath.resolve(document.getStoredFileName()).normalize();
+
+        if (!storedFilePath.startsWith(uploadPath) || !Files.exists(storedFilePath)) {
+            throw new IllegalStateException("Document file could not be found.");
+        }
+
+        return storedFilePath;
+    }
+
     public Document uploadDocument(MultipartFile file, User user) {
         validateUpload(file);
 
