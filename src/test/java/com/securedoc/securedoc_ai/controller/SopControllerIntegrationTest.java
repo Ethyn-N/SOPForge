@@ -10,11 +10,16 @@ import com.securedoc.securedoc_ai.repository.DocumentRepository;
 import com.securedoc.securedoc_ai.repository.SopRepository;
 import com.securedoc.securedoc_ai.repository.UserRepository;
 import com.securedoc.securedoc_ai.service.JwtService;
+import com.securedoc.securedoc_ai.service.ai.AiSopGenerator;
+import com.securedoc.securedoc_ai.service.ai.GeneratedSopDraft;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.TestPropertySource;
@@ -171,5 +176,21 @@ class SopControllerIntegrationTest {
 
     private String bearer(String token) {
         return "Bearer " + token;
+    }
+
+    @TestConfiguration
+    static class TestAiConfiguration {
+
+        @Bean
+        @Primary
+        AiSopGenerator testAiSopGenerator() {
+            return (document, user) -> new GeneratedSopDraft(
+                    "SOP for " + document.getOriginalFileName(),
+                    "Test purpose generated from AI.",
+                    "Test scope generated from AI.",
+                    "Test procedure generated from: " + document.getExtractedText(),
+                    "Owner: " + user.getEmail() + "\nReviewer: TBD\nApprover: TBD"
+            );
+        }
     }
 }

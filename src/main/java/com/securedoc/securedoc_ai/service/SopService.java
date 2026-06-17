@@ -5,6 +5,8 @@ import com.securedoc.securedoc_ai.model.ExtractionStatus;
 import com.securedoc.securedoc_ai.model.Sop;
 import com.securedoc.securedoc_ai.model.User;
 import com.securedoc.securedoc_ai.repository.SopRepository;
+import com.securedoc.securedoc_ai.service.ai.AiSopGenerator;
+import com.securedoc.securedoc_ai.service.ai.GeneratedSopDraft;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -12,10 +14,9 @@ import org.springframework.stereotype.Service;
 @Service
 public class SopService {
 
-    private static final int SOURCE_TEXT_PREVIEW_LENGTH = 2_000;
-
     private final DocumentService documentService;
     private final SopRepository sopRepository;
+    private final AiSopGenerator aiSopGenerator;
 
     public Sop generateSop(Long documentId, User user) {
         Document document = documentService.getDocument(documentId, user);
@@ -24,12 +25,14 @@ public class SopService {
             throw new IllegalStateException("Document text must be successfully extracted before generating an SOP.");
         }
 
+        GeneratedSopDraft generatedSopDraft = aiSopGenerator.generate(document, user);
+
         Sop sop = new Sop(
-                "SOP for " + document.getOriginalFileName(),
-                "Provide a standard operating procedure based on the uploaded document.",
-                "This SOP applies to the process information extracted from " + document.getOriginalFileName() + ".",
-                buildProcedure(document.getExtractedText()),
-                "Owner: " + user.getEmail() + "\nReviewer: TBD\nApprover: TBD",
+                required(generatedSopDraft.title(), "title"),
+                required(generatedSopDraft.purpose(), "purpose"),
+                required(generatedSopDraft.scope(), "scope"),
+                required(generatedSopDraft.procedure(), "procedure"),
+                required(generatedSopDraft.roles(), "roles"),
                 document,
                 user
         );
@@ -37,21 +40,12 @@ public class SopService {
         return sopRepository.save(sop);
     }
 
-    private String buildProcedure(String extractedText) {
-        return """
-                AI generation placeholder.
-
-                Source text preview:
-                %s
-                """.formatted(preview(extractedText));
-    }
-
-    private String preview(String extractedText) {
-        if (extractedText.length() <= SOURCE_TEXT_PREVIEW_LENGTH) {
-            return extractedText;
+    private String required(String value, String fieldName) {
+        if (isBlank(value)) {
+            throw new IllegalStateException("AI SOP generation did not return " + fieldName + ".");
         }
 
-        return extractedText.substring(0, SOURCE_TEXT_PREVIEW_LENGTH) + "...";
+        return value;
     }
 
     private boolean isBlank(String value) {
