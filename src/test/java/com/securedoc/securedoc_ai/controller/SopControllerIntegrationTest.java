@@ -290,6 +290,102 @@ class SopControllerIntegrationTest {
         assertTrue(sopRepository.findById(otherUsersSop.getId()).isPresent());
     }
 
+    @Test
+    void submitSopMovesDraftToPendingReview() throws Exception {
+        Sop sop = saveSopFor(userOne, "Submit SOP");
+
+        mockMvc.perform(post("/api/sops/{id}/submit", sop.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING_REVIEW"));
+
+        Sop updatedSop = sopRepository.findById(sop.getId()).orElseThrow();
+        assertEquals(SopStatus.PENDING_REVIEW, updatedSop.getStatus());
+    }
+
+    @Test
+    void submitSopRejectsOtherUsersSop() throws Exception {
+        Sop otherUsersSop = saveSopFor(userTwo, "Other Submit SOP");
+
+        mockMvc.perform(post("/api/sops/{id}/submit", otherUsersSop.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(
+                        "sop with id " + otherUsersSop.getId() + " does not exist"
+                ));
+    }
+
+    @Test
+    void approveSopMovesPendingReviewToApproved() throws Exception {
+        Sop sop = saveSopFor(userOne, "Approve SOP", SopStatus.PENDING_REVIEW);
+
+        mockMvc.perform(post("/api/sops/{id}/approve", sop.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("APPROVED"));
+
+        Sop updatedSop = sopRepository.findById(sop.getId()).orElseThrow();
+        assertEquals(SopStatus.APPROVED, updatedSop.getStatus());
+    }
+
+    @Test
+    void approveSopRejectsInvalidStatus() throws Exception {
+        Sop sop = saveSopFor(userOne, "Draft Approval SOP");
+
+        mockMvc.perform(post("/api/sops/{id}/approve", sop.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("SOP with status DRAFT cannot be approved."));
+
+        Sop unchangedSop = sopRepository.findById(sop.getId()).orElseThrow();
+        assertEquals(SopStatus.DRAFT, unchangedSop.getStatus());
+    }
+
+    @Test
+    void rejectSopMovesPendingReviewToRejected() throws Exception {
+        Sop sop = saveSopFor(userOne, "Reject SOP", SopStatus.PENDING_REVIEW);
+
+        mockMvc.perform(post("/api/sops/{id}/reject", sop.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REJECTED"));
+
+        Sop updatedSop = sopRepository.findById(sop.getId()).orElseThrow();
+        assertEquals(SopStatus.REJECTED, updatedSop.getStatus());
+    }
+
+    @Test
+    void archiveSopMovesApprovedToArchived() throws Exception {
+        Sop sop = saveSopFor(userOne, "Archive SOP", SopStatus.APPROVED);
+
+        mockMvc.perform(post("/api/sops/{id}/archive", sop.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ARCHIVED"));
+
+        Sop updatedSop = sopRepository.findById(sop.getId()).orElseThrow();
+        assertEquals(SopStatus.ARCHIVED, updatedSop.getStatus());
+    }
+
+    @Test
+    void updateSopRejectsApprovedSop() throws Exception {
+        Sop sop = saveSopFor(userOne, "Approved SOP", SopStatus.APPROVED);
+
+        mockMvc.perform(patch("/api/sops/{id}", sop.getId())
+                        .header("Authorization", bearer(userOneToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Changed Approved SOP"
+                                }
+                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("SOP with status APPROVED cannot be edited."));
+
+        Sop unchangedSop = sopRepository.findById(sop.getId()).orElseThrow();
+        assertEquals("Approved SOP", unchangedSop.getTitle());
+    }
+
     private void uploadTextDocument(String fileName, String content, String token) throws Exception {
         MockMultipartFile file = new MockMultipartFile(
                 "file",
@@ -319,6 +415,10 @@ class SopControllerIntegrationTest {
     }
 
     private Sop saveSopFor(User owner, String title) {
+        return saveSopFor(owner, title, SopStatus.DRAFT);
+    }
+
+    private Sop saveSopFor(User owner, String title, SopStatus status) {
         Document document = new Document(
                 title + ".txt",
                 "stored-" + title + ".txt",
@@ -331,7 +431,7 @@ class SopControllerIntegrationTest {
         document.setExtractedText("Source text for " + title);
         Document savedDocument = documentRepository.save(document);
 
-        return sopRepository.save(new Sop(
+        Sop sop = new Sop(
                 title,
                 "Test purpose.",
                 "Test scope.",
@@ -339,7 +439,10 @@ class SopControllerIntegrationTest {
                 "Server",
                 savedDocument,
                 owner
-        ));
+        );
+        sop.setStatus(status);
+
+        return sopRepository.save(sop);
     }
 
     private String bearer(String token) {

@@ -4,6 +4,7 @@ import com.securedoc.securedoc_ai.dto.SopUpdateRequest;
 import com.securedoc.securedoc_ai.model.Document;
 import com.securedoc.securedoc_ai.model.ExtractionStatus;
 import com.securedoc.securedoc_ai.model.Sop;
+import com.securedoc.securedoc_ai.model.SopStatus;
 import com.securedoc.securedoc_ai.model.User;
 import com.securedoc.securedoc_ai.repository.SopRepository;
 import com.securedoc.securedoc_ai.service.ai.AiSopGenerator;
@@ -57,6 +58,7 @@ public class SopService {
 
     public Sop updateSop(Long id, SopUpdateRequest request, User user) {
         Sop sop = getSop(id, user);
+        requireStatus(sop, List.of(SopStatus.DRAFT, SopStatus.REJECTED), "edited");
 
         if (request.title() != null) {
             sop.setTitle(requiredUpdate(request.title(), "title"));
@@ -86,6 +88,49 @@ public class SopService {
     public void deleteSop(Long id, User user) {
         Sop sop = getSop(id, user);
         sopRepository.delete(sop);
+    }
+
+    public Sop submitSopForReview(Long id, User user) {
+        Sop sop = getSop(id, user);
+        requireStatus(sop, List.of(SopStatus.DRAFT, SopStatus.REJECTED), "submitted for review");
+
+        return updateStatus(sop, SopStatus.PENDING_REVIEW);
+    }
+
+    public Sop approveSop(Long id, User user) {
+        Sop sop = getSop(id, user);
+        requireStatus(sop, List.of(SopStatus.PENDING_REVIEW), "approved");
+
+        return updateStatus(sop, SopStatus.APPROVED);
+    }
+
+    public Sop rejectSop(Long id, User user) {
+        Sop sop = getSop(id, user);
+        requireStatus(sop, List.of(SopStatus.PENDING_REVIEW), "rejected");
+
+        return updateStatus(sop, SopStatus.REJECTED);
+    }
+
+    public Sop archiveSop(Long id, User user) {
+        Sop sop = getSop(id, user);
+        requireStatus(sop, List.of(SopStatus.DRAFT, SopStatus.REJECTED, SopStatus.APPROVED), "archived");
+
+        return updateStatus(sop, SopStatus.ARCHIVED);
+    }
+
+    private Sop updateStatus(Sop sop, SopStatus status) {
+        sop.setStatus(status);
+        sop.setUpdatedAt(LocalDateTime.now());
+
+        return sopRepository.save(sop);
+    }
+
+    private void requireStatus(Sop sop, List<SopStatus> allowedStatuses, String action) {
+        if (!allowedStatuses.contains(sop.getStatus())) {
+            throw new IllegalStateException(
+                    "SOP with status " + sop.getStatus() + " cannot be " + action + "."
+            );
+        }
     }
 
     private String requiredGenerated(String value, String fieldName) {

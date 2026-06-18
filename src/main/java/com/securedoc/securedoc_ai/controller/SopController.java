@@ -63,4 +63,40 @@ public class SopController {
         sopService.deleteSop(id, user);
         return ResponseEntity.noContent().build();
     }
+
+    @PostMapping("/sops/{id}/submit")
+    public SopResponse submitSopForReview(
+            @PathVariable Long id,
+            @AuthenticationPrincipal User user
+    ) {
+        Sop sop = sopService.submitSopForReview(id, user);
+        return new SopResponse(sop);
+    }
+
+    @PostMapping("/sops/{id}/approve")
+    public SopResponse approveSop(
+            @PathVariable Long id,
+            @AuthenticationPrincipal User user
+    ) {
+        Sop sop = sopService.approveSop(id, user);
+        return new SopResponse(sop);
+    }
+
+    @PostMapping("/sops/{id}/reject")
+    public SopResponse rejectSop(
+            @PathVariable Long id,
+            @AuthenticationPrincipal User user
+    ) {
+        Sop sop = sopService.rejectSop(id, user);
+        return new SopResponse(sop);
+    }
+
+    @PostMapping("/sops/{id}/archive")
+    public SopResponse archiveSop(
+            @PathVariable Long id,
+            @AuthenticationPrincipal User user
+    ) {
+        Sop sop = sopService.archiveSop(id, user);
+        return new SopResponse(sop);
+    }
 }
