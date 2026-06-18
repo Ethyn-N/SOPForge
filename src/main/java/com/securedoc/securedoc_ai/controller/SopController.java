@@ -1,10 +1,12 @@
 package com.securedoc.securedoc_ai.controller;
 
 import com.securedoc.securedoc_ai.dto.SopResponse;
+import com.securedoc.securedoc_ai.dto.SopUpdateRequest;
 import com.securedoc.securedoc_ai.model.Sop;
 import com.securedoc.securedoc_ai.model.User;
 import com.securedoc.securedoc_ai.service.SopService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
@@ -41,5 +43,24 @@ public class SopController {
     ) {
         Sop sop = sopService.generateSop(documentId, user);
         return new SopResponse(sop);
+    }
+
+    @PatchMapping("/sops/{id}")
+    public SopResponse updateSop(
+            @PathVariable Long id,
+            @RequestBody SopUpdateRequest request,
+            @AuthenticationPrincipal User user
+    ) {
+        Sop sop = sopService.updateSop(id, request, user);
+        return new SopResponse(sop);
+    }
+
+    @DeleteMapping("/sops/{id}")
+    public ResponseEntity<Void> deleteSop(
+            @PathVariable Long id,
+            @AuthenticationPrincipal User user
+    ) {
+        sopService.deleteSop(id, user);
+        return ResponseEntity.noContent().build();
     }
 }

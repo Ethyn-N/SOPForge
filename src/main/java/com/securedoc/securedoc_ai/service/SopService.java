@@ -1,5 +1,6 @@
 package com.securedoc.securedoc_ai.service;
 
+import com.securedoc.securedoc_ai.dto.SopUpdateRequest;
 import com.securedoc.securedoc_ai.model.Document;
 import com.securedoc.securedoc_ai.model.ExtractionStatus;
 import com.securedoc.securedoc_ai.model.Sop;
@@ -10,6 +11,7 @@ import com.securedoc.securedoc_ai.service.ai.GeneratedSopDraft;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @RequiredArgsConstructor
@@ -41,11 +43,11 @@ public class SopService {
         GeneratedSopDraft generatedSopDraft = aiSopGenerator.generate(document, user);
 
         Sop sop = new Sop(
-                required(generatedSopDraft.title(), "title"),
-                required(generatedSopDraft.purpose(), "purpose"),
-                required(generatedSopDraft.scope(), "scope"),
-                required(generatedSopDraft.procedure(), "procedure"),
-                required(generatedSopDraft.roles(), "roles"),
+                requiredGenerated(generatedSopDraft.title(), "title"),
+                requiredGenerated(generatedSopDraft.purpose(), "purpose"),
+                requiredGenerated(generatedSopDraft.scope(), "scope"),
+                requiredGenerated(generatedSopDraft.procedure(), "procedure"),
+                requiredGenerated(generatedSopDraft.roles(), "roles"),
                 document,
                 user
         );
@@ -53,9 +55,50 @@ public class SopService {
         return sopRepository.save(sop);
     }
 
-    private String required(String value, String fieldName) {
+    public Sop updateSop(Long id, SopUpdateRequest request, User user) {
+        Sop sop = getSop(id, user);
+
+        if (request.title() != null) {
+            sop.setTitle(requiredUpdate(request.title(), "title"));
+        }
+
+        if (request.purpose() != null) {
+            sop.setPurpose(requiredUpdate(request.purpose(), "purpose"));
+        }
+
+        if (request.scope() != null) {
+            sop.setScope(requiredUpdate(request.scope(), "scope"));
+        }
+
+        if (request.procedure() != null) {
+            sop.setProcedure(requiredUpdate(request.procedure(), "procedure"));
+        }
+
+        if (request.roles() != null) {
+            sop.setRoles(requiredUpdate(request.roles(), "roles"));
+        }
+
+        sop.setUpdatedAt(LocalDateTime.now());
+
+        return sopRepository.save(sop);
+    }
+
+    public void deleteSop(Long id, User user) {
+        Sop sop = getSop(id, user);
+        sopRepository.delete(sop);
+    }
+
+    private String requiredGenerated(String value, String fieldName) {
         if (isBlank(value)) {
             throw new IllegalStateException("AI SOP generation did not return " + fieldName + ".");
+        }
+
+        return value;
+    }
+
+    private String requiredUpdate(String value, String fieldName) {
+        if (isBlank(value)) {
+            throw new IllegalStateException(fieldName + " must not be blank.");
         }
 
         return value;

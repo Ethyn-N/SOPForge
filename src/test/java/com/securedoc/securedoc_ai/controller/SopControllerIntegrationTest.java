@@ -33,9 +33,12 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -192,6 +195,99 @@ class SopControllerIntegrationTest {
                 .andExpect(jsonPath("$.message").value(
                         "sop with id " + otherUsersSop.getId() + " does not exist"
                 ));
+    }
+
+    @Test
+    void updateSopEditsProvidedFieldsAndKeepsOmittedFields() throws Exception {
+        Sop sop = saveSopFor(userOne, "Original SOP");
+
+        mockMvc.perform(patch("/api/sops/{id}", sop.getId())
+                        .header("Authorization", bearer(userOneToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Updated SOP",
+                                  "procedure": "1. Updated step."
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(sop.getId()))
+                .andExpect(jsonPath("$.title").value("Updated SOP"))
+                .andExpect(jsonPath("$.purpose").value("Test purpose."))
+                .andExpect(jsonPath("$.scope").value("Test scope."))
+                .andExpect(jsonPath("$.procedure").value("1. Updated step."))
+                .andExpect(jsonPath("$.roles").value("Server"));
+
+        Sop updatedSop = sopRepository.findById(sop.getId()).orElseThrow();
+        assertEquals("Updated SOP", updatedSop.getTitle());
+        assertEquals("Test purpose.", updatedSop.getPurpose());
+        assertEquals("1. Updated step.", updatedSop.getProcedure());
+    }
+
+    @Test
+    void updateSopRejectsBlankFields() throws Exception {
+        Sop sop = saveSopFor(userOne, "Original SOP");
+
+        mockMvc.perform(patch("/api/sops/{id}", sop.getId())
+                        .header("Authorization", bearer(userOneToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": " "
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("title must not be blank."));
+
+        Sop unchangedSop = sopRepository.findById(sop.getId()).orElseThrow();
+        assertEquals("Original SOP", unchangedSop.getTitle());
+    }
+
+    @Test
+    void updateSopRejectsSopOwnedByAnotherUser() throws Exception {
+        Sop otherUsersSop = saveSopFor(userTwo, "Private SOP");
+
+        mockMvc.perform(patch("/api/sops/{id}", otherUsersSop.getId())
+                        .header("Authorization", bearer(userOneToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Unauthorized Update"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(
+                        "sop with id " + otherUsersSop.getId() + " does not exist"
+                ));
+
+        Sop unchangedSop = sopRepository.findById(otherUsersSop.getId()).orElseThrow();
+        assertEquals("Private SOP", unchangedSop.getTitle());
+    }
+
+    @Test
+    void deleteSopRemovesOwnedSop() throws Exception {
+        Sop sop = saveSopFor(userOne, "Delete Me SOP");
+
+        mockMvc.perform(delete("/api/sops/{id}", sop.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
+
+        assertTrue(sopRepository.findById(sop.getId()).isEmpty());
+    }
+
+    @Test
+    void deleteSopRejectsSopOwnedByAnotherUser() throws Exception {
+        Sop otherUsersSop = saveSopFor(userTwo, "Keep Me SOP");
+
+        mockMvc.perform(delete("/api/sops/{id}", otherUsersSop.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(
+                        "sop with id " + otherUsersSop.getId() + " does not exist"
+                ));
+
+        assertTrue(sopRepository.findById(otherUsersSop.getId()).isPresent());
     }
 
     private void uploadTextDocument(String fileName, String content, String token) throws Exception {
