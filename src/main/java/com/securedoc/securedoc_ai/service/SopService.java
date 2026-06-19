@@ -5,8 +5,10 @@ import com.securedoc.securedoc_ai.model.Document;
 import com.securedoc.securedoc_ai.model.ExtractionStatus;
 import com.securedoc.securedoc_ai.model.Sop;
 import com.securedoc.securedoc_ai.model.SopStatus;
+import com.securedoc.securedoc_ai.model.SopVersion;
 import com.securedoc.securedoc_ai.model.User;
 import com.securedoc.securedoc_ai.repository.SopRepository;
+import com.securedoc.securedoc_ai.repository.SopVersionRepository;
 import com.securedoc.securedoc_ai.service.ai.AiSopGenerator;
 import com.securedoc.securedoc_ai.service.ai.GeneratedSopDraft;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +23,7 @@ public class SopService {
 
     private final DocumentService documentService;
     private final SopRepository sopRepository;
+    private final SopVersionRepository sopVersionRepository;
     private final AiSopGenerator aiSopGenerator;
 
     public List<Sop> getSops(User user) {
@@ -31,6 +34,20 @@ public class SopService {
         return sopRepository.findByIdAndOwner(id, user)
                 .orElseThrow(() -> new IllegalStateException(
                         "sop with id " + id + " does not exist"
+                ));
+    }
+
+    public List<SopVersion> getSopVersions(Long sopId, User user) {
+        Sop sop = getSop(sopId, user);
+        return sopVersionRepository.findBySopOrderByVersionNumberAsc(sop);
+    }
+
+    public SopVersion getSopVersion(Long sopId, Long versionId, User user) {
+        Sop sop = getSop(sopId, user);
+
+        return sopVersionRepository.findByIdAndSop(versionId, sop)
+                .orElseThrow(() -> new IllegalStateException(
+                        "version with id " + versionId + " does not exist"
                 ));
     }
 
@@ -53,7 +70,10 @@ public class SopService {
                 user
         );
 
-        return sopRepository.save(sop);
+        Sop savedSop = sopRepository.save(sop);
+        createVersion(savedSop, user, "Generated SOP");
+
+        return savedSop;
     }
 
     public Sop updateSop(Long id, SopUpdateRequest request, User user) {
@@ -82,7 +102,10 @@ public class SopService {
 
         sop.setUpdatedAt(LocalDateTime.now());
 
-        return sopRepository.save(sop);
+        Sop savedSop = sopRepository.save(sop);
+        createVersion(savedSop, user, "Edited SOP");
+
+        return savedSop;
     }
 
     public void deleteSop(Long id, User user) {
@@ -94,35 +117,44 @@ public class SopService {
         Sop sop = getSop(id, user);
         requireStatus(sop, List.of(SopStatus.DRAFT, SopStatus.REJECTED), "submitted for review");
 
-        return updateStatus(sop, SopStatus.PENDING_REVIEW);
+        return updateStatus(sop, SopStatus.PENDING_REVIEW, user, "Submitted for review");
     }
 
     public Sop approveSop(Long id, User user) {
         Sop sop = getSop(id, user);
         requireStatus(sop, List.of(SopStatus.PENDING_REVIEW), "approved");
 
-        return updateStatus(sop, SopStatus.APPROVED);
+        return updateStatus(sop, SopStatus.APPROVED, user, "Approved SOP");
     }
 
     public Sop rejectSop(Long id, User user) {
         Sop sop = getSop(id, user);
         requireStatus(sop, List.of(SopStatus.PENDING_REVIEW), "rejected");
 
-        return updateStatus(sop, SopStatus.REJECTED);
+        return updateStatus(sop, SopStatus.REJECTED, user, "Rejected SOP");
     }
 
     public Sop archiveSop(Long id, User user) {
         Sop sop = getSop(id, user);
         requireStatus(sop, List.of(SopStatus.DRAFT, SopStatus.REJECTED, SopStatus.APPROVED), "archived");
 
-        return updateStatus(sop, SopStatus.ARCHIVED);
+        return updateStatus(sop, SopStatus.ARCHIVED, user, "Archived SOP");
     }
 
-    private Sop updateStatus(Sop sop, SopStatus status) {
+    private Sop updateStatus(Sop sop, SopStatus status, User user, String changeReason) {
         sop.setStatus(status);
         sop.setUpdatedAt(LocalDateTime.now());
 
-        return sopRepository.save(sop);
+        Sop savedSop = sopRepository.save(sop);
+        createVersion(savedSop, user, changeReason);
+
+        return savedSop;
+    }
+
+    private void createVersion(Sop sop, User user, String changeReason) {
+        int versionNumber = sopVersionRepository.countBySop(sop) + 1;
+        SopVersion sopVersion = new SopVersion(sop, versionNumber, user, changeReason);
+        sopVersionRepository.save(sopVersion);
     }
 
     private void requireStatus(Sop sop, List<SopStatus> allowedStatuses, String action) {

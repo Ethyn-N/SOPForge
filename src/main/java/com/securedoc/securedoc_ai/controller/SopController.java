@@ -2,7 +2,9 @@ package com.securedoc.securedoc_ai.controller;
 
 import com.securedoc.securedoc_ai.dto.SopResponse;
 import com.securedoc.securedoc_ai.dto.SopUpdateRequest;
+import com.securedoc.securedoc_ai.dto.SopVersionResponse;
 import com.securedoc.securedoc_ai.model.Sop;
+import com.securedoc.securedoc_ai.model.SopVersion;
 import com.securedoc.securedoc_ai.model.User;
 import com.securedoc.securedoc_ai.service.SopService;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +36,27 @@ public class SopController {
     ) {
         Sop sop = sopService.getSop(id, user);
         return new SopResponse(sop);
+    }
+
+    @GetMapping("/sops/{id}/versions")
+    public List<SopVersionResponse> getSopVersions(
+            @PathVariable Long id,
+            @AuthenticationPrincipal User user
+    ) {
+        return sopService.getSopVersions(id, user)
+                .stream()
+                .map(SopVersionResponse::new)
+                .toList();
+    }
+
+    @GetMapping("/sops/{id}/versions/{versionId}")
+    public SopVersionResponse getSopVersion(
+            @PathVariable Long id,
+            @PathVariable Long versionId,
+            @AuthenticationPrincipal User user
+    ) {
+        SopVersion sopVersion = sopService.getSopVersion(id, versionId, user);
+        return new SopVersionResponse(sopVersion);
     }
 
     @PostMapping("/documents/{documentId}/sops/generate")

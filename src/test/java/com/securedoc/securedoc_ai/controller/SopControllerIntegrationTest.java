@@ -8,6 +8,7 @@ import com.securedoc.securedoc_ai.model.SopStatus;
 import com.securedoc.securedoc_ai.model.User;
 import com.securedoc.securedoc_ai.repository.DocumentRepository;
 import com.securedoc.securedoc_ai.repository.SopRepository;
+import com.securedoc.securedoc_ai.repository.SopVersionRepository;
 import com.securedoc.securedoc_ai.repository.UserRepository;
 import com.securedoc.securedoc_ai.service.JwtService;
 import com.securedoc.securedoc_ai.service.ai.AiSopGenerator;
@@ -68,6 +69,9 @@ class SopControllerIntegrationTest {
     private SopRepository sopRepository;
 
     @Autowired
+    private SopVersionRepository sopVersionRepository;
+
+    @Autowired
     private JwtService jwtService;
 
     @Autowired
@@ -81,6 +85,7 @@ class SopControllerIntegrationTest {
     @BeforeEach
     void setUp() throws IOException {
         FileSystemUtils.deleteRecursively(Path.of(storageProperties.getUploadDir()));
+        sopVersionRepository.deleteAll();
         sopRepository.deleteAll();
         documentRepository.deleteAll();
         userRepository.deleteAll();
@@ -120,6 +125,7 @@ class SopControllerIntegrationTest {
         assertEquals(document.getId(), savedSop.getSourceDocument().getId());
         assertEquals(userOne.getId(), savedSop.getOwner().getId());
         assertTrue(savedSop.getProcedure().contains("Step two"));
+        assertEquals(1, sopVersionRepository.countBySop(savedSop));
     }
 
     @Test
@@ -222,6 +228,7 @@ class SopControllerIntegrationTest {
         assertEquals("Updated SOP", updatedSop.getTitle());
         assertEquals("Test purpose.", updatedSop.getPurpose());
         assertEquals("1. Updated step.", updatedSop.getProcedure());
+        assertEquals(1, sopVersionRepository.countBySop(updatedSop));
     }
 
     @Test
@@ -301,6 +308,7 @@ class SopControllerIntegrationTest {
 
         Sop updatedSop = sopRepository.findById(sop.getId()).orElseThrow();
         assertEquals(SopStatus.PENDING_REVIEW, updatedSop.getStatus());
+        assertEquals(1, sopVersionRepository.countBySop(updatedSop));
     }
 
     @Test
@@ -384,6 +392,79 @@ class SopControllerIntegrationTest {
 
         Sop unchangedSop = sopRepository.findById(sop.getId()).orElseThrow();
         assertEquals("Approved SOP", unchangedSop.getTitle());
+    }
+
+    @Test
+    void getSopVersionsReturnsSnapshotsInVersionOrder() throws Exception {
+        uploadTextDocument("versioned-policy.txt", "Original text", userOneToken);
+        Document document = documentRepository.findByOwner(userOne).getFirst();
+
+        mockMvc.perform(post("/api/documents/{id}/sops/generate", document.getId())
+                        .header("Authorization", bearer(userOneToken)));
+
+        Sop sop = sopRepository.findByOwner(userOne).getFirst();
+
+        mockMvc.perform(patch("/api/sops/{id}", sop.getId())
+                        .header("Authorization", bearer(userOneToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Edited Versioned SOP"
+                                }
+                                """));
+
+        mockMvc.perform(post("/api/sops/{id}/submit", sop.getId())
+                        .header("Authorization", bearer(userOneToken)));
+
+        mockMvc.perform(get("/api/sops/{id}/versions", sop.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(3)))
+                .andExpect(jsonPath("$[0].versionNumber").value(1))
+                .andExpect(jsonPath("$[0].title").value("SOP for versioned-policy.txt"))
+                .andExpect(jsonPath("$[0].status").value("DRAFT"))
+                .andExpect(jsonPath("$[0].changeReason").value("Generated SOP"))
+                .andExpect(jsonPath("$[1].versionNumber").value(2))
+                .andExpect(jsonPath("$[1].title").value("Edited Versioned SOP"))
+                .andExpect(jsonPath("$[1].status").value("DRAFT"))
+                .andExpect(jsonPath("$[1].changeReason").value("Edited SOP"))
+                .andExpect(jsonPath("$[2].versionNumber").value(3))
+                .andExpect(jsonPath("$[2].status").value("PENDING_REVIEW"))
+                .andExpect(jsonPath("$[2].changeReason").value("Submitted for review"));
+    }
+
+    @Test
+    void getSopVersionAllowsOwner() throws Exception {
+        uploadTextDocument("single-version.txt", "Version source", userOneToken);
+        Document document = documentRepository.findByOwner(userOne).getFirst();
+
+        mockMvc.perform(post("/api/documents/{id}/sops/generate", document.getId())
+                        .header("Authorization", bearer(userOneToken)));
+
+        Sop sop = sopRepository.findByOwner(userOne).getFirst();
+        Long versionId = sopVersionRepository.findBySopOrderByVersionNumberAsc(sop).getFirst().getId();
+
+        mockMvc.perform(get("/api/sops/{id}/versions/{versionId}", sop.getId(), versionId)
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(versionId))
+                .andExpect(jsonPath("$.sopId").value(sop.getId()))
+                .andExpect(jsonPath("$.versionNumber").value(1))
+                .andExpect(jsonPath("$.createdById").value(userOne.getId()))
+                .andExpect(jsonPath("$.createdByEmail").value(userOne.getEmail()))
+                .andExpect(jsonPath("$.changeReason").value("Generated SOP"));
+    }
+
+    @Test
+    void getSopVersionsRejectsOtherUsersSop() throws Exception {
+        Sop otherUsersSop = saveSopFor(userTwo, "Other User Version SOP");
+
+        mockMvc.perform(get("/api/sops/{id}/versions", otherUsersSop.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(
+                        "sop with id " + otherUsersSop.getId() + " does not exist"
+                ));
     }
 
     private void uploadTextDocument(String fileName, String content, String token) throws Exception {
