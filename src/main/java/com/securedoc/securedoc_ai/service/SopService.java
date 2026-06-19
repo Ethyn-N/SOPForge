@@ -1,5 +1,6 @@
 package com.securedoc.securedoc_ai.service;
 
+import com.securedoc.securedoc_ai.dto.SopGenerateRequest;
 import com.securedoc.securedoc_ai.dto.SopUpdateRequest;
 import com.securedoc.securedoc_ai.model.Document;
 import com.securedoc.securedoc_ai.model.ExtractionStatus;
@@ -52,13 +53,28 @@ public class SopService {
     }
 
     public Sop generateSop(Long documentId, User user) {
-        Document document = documentService.getDocument(documentId, user);
+        return generateSop(new SopGenerateRequest(null, List.of(documentId), null), user);
+    }
 
-        if (document.getExtractionStatus() != ExtractionStatus.SUCCESS || isBlank(document.getExtractedText())) {
-            throw new IllegalStateException("Document text must be successfully extracted before generating an SOP.");
+    public Sop generateSop(SopGenerateRequest request, User user) {
+        if (request == null) {
+            throw new IllegalStateException("At least one source document is required.");
         }
 
-        GeneratedSopDraft generatedSopDraft = aiSopGenerator.generate(document, user);
+        List<Document> documents = getSourceDocuments(request.sourceDocumentIds(), user);
+
+        for (Document document : documents) {
+            if (document.getExtractionStatus() != ExtractionStatus.SUCCESS || isBlank(document.getExtractedText())) {
+                throw new IllegalStateException("Document text must be successfully extracted before generating an SOP.");
+            }
+        }
+
+        GeneratedSopDraft generatedSopDraft = aiSopGenerator.generate(
+                documents,
+                request.title(),
+                request.instructions(),
+                user
+        );
 
         Sop sop = new Sop(
                 requiredGenerated(generatedSopDraft.title(), "title"),
@@ -66,7 +82,7 @@ public class SopService {
                 requiredGenerated(generatedSopDraft.scope(), "scope"),
                 requiredGenerated(generatedSopDraft.procedure(), "procedure"),
                 requiredGenerated(generatedSopDraft.roles(), "roles"),
-                document,
+                documents,
                 user
         );
 
@@ -74,6 +90,17 @@ public class SopService {
         createVersion(savedSop, user, "Generated SOP");
 
         return savedSop;
+    }
+
+    private List<Document> getSourceDocuments(List<Long> sourceDocumentIds, User user) {
+        if (sourceDocumentIds == null || sourceDocumentIds.isEmpty()) {
+            throw new IllegalStateException("At least one source document is required.");
+        }
+
+        return sourceDocumentIds.stream()
+                .distinct()
+                .map(documentId -> documentService.getDocument(documentId, user))
+                .toList();
     }
 
     public Sop updateSop(Long id, SopUpdateRequest request, User user) {

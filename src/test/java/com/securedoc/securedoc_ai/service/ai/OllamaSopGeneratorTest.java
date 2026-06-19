@@ -11,6 +11,8 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -27,14 +29,14 @@ class OllamaSopGeneratorTest {
 
     @Test
     void generateParsesJsonWhenModelWrapsResponseInMarkdown() throws IOException {
-        startOllamaStub("""
+        startOllamaStub(List.of("""
                 {
                   "message": {
                     "role": "assistant",
                     "content": "```json\\n{\\n  \\"title\\": \\"Generated SOP\\",\\n  \\"purpose\\": \\"Create a safe process.\\",\\n  \\"scope\\": \\"Server operations.\\",\\n  \\"procedure\\": \\"Step one. Step two.\\",\\n  \\"roles\\": \\"Owner: ethyn@example.com\\"\\n}\\n```"
                   }
                 }
-                """);
+                """));
 
         GeneratedSopDraft draft = new OllamaSopGenerator(aiProperties(), new ObjectMapper())
                 .generate(document(), user());
@@ -46,9 +48,87 @@ class OllamaSopGeneratorTest {
         assertEquals("Owner: ethyn@example.com", draft.roles());
     }
 
-    private void startOllamaStub(String responseBody) throws IOException {
+    @Test
+    void generateRepairsInvalidJsonResponse() throws IOException {
+        startOllamaStub(List.of(
+                """
+                        {
+                          "message": {
+                            "role": "assistant",
+                            "content": "{\\"title\\": \\"Broken SOP\\", \\"purpose\\": \\"Purpose\\", \\"scope\\": \\"Scope\\", \\"procedure\\": \\"1. Broken step\\n2. Raw newline\\", \\"roles\\": \\"Server\\"}"
+                          }
+                        }
+                        """,
+                """
+                        {
+                          "message": {
+                            "role": "assistant",
+                            "content": "{\\"title\\": \\"Repaired SOP\\", \\"purpose\\": \\"Purpose\\", \\"scope\\": \\"Scope\\", \\"procedure\\": \\"1. Repaired step.\\\\n2. Valid step.\\", \\"roles\\": \\"Server\\"}"
+                          }
+                        }
+                        """
+        ));
+
+        GeneratedSopDraft draft = new OllamaSopGenerator(aiProperties(), new ObjectMapper())
+                .generate(document(), user());
+
+        assertEquals("Repaired SOP", draft.title());
+        assertEquals("1. Repaired step.\n2. Valid step.", draft.procedure());
+        assertEquals("Server", draft.roles());
+    }
+
+    @Test
+    void generateUsesRequestedTitleWhenModelOmitsTitle() throws IOException {
+        startOllamaStub(List.of(
+                """
+                        {
+                          "message": {
+                            "role": "assistant",
+                            "content": "{\\"purpose\\": \\"Purpose\\", \\"scope\\": \\"Scope\\", \\"procedure\\": \\"1. Step one.\\", \\"roles\\": \\"Server\\"}"
+                          }
+                        }
+                        """
+        ));
+
+        GeneratedSopDraft draft = new OllamaSopGenerator(aiProperties(), new ObjectMapper())
+                .generate(List.of(document()), "Restaurant Service SOP", null, user());
+
+        assertEquals("Restaurant Service SOP", draft.title());
+        assertEquals("Purpose", draft.purpose());
+        assertEquals("Scope", draft.scope());
+        assertEquals("1. Step one.", draft.procedure());
+        assertEquals("Server", draft.roles());
+    }
+
+    @Test
+    void generateUsesDefaultsWhenModelOmitsMetadataFields() throws IOException {
+        startOllamaStub(List.of(
+                """
+                        {
+                          "message": {
+                            "role": "assistant",
+                            "content": "{\\"procedure\\": \\"1. Follow the documented service process.\\"}"
+                          }
+                        }
+                        """
+        ));
+
+        GeneratedSopDraft draft = new OllamaSopGenerator(aiProperties(), new ObjectMapper())
+                .generate(List.of(document()), "Restaurant Service SOP", null, user());
+
+        assertEquals("Restaurant Service SOP", draft.title());
+        assertEquals("To define a clear standard operating procedure for Restaurant Service SOP.", draft.purpose());
+        assertEquals("This SOP applies to the business process described in the selected source documents.", draft.scope());
+        assertEquals("1. Follow the documented service process.", draft.procedure());
+        assertEquals("server.pdf", draft.roles());
+    }
+
+    private void startOllamaStub(List<String> responseBodies) throws IOException {
+        AtomicInteger requestCount = new AtomicInteger();
         httpServer = HttpServer.create(new InetSocketAddress(0), 0);
         httpServer.createContext("/api/chat", exchange -> {
+            int responseIndex = Math.min(requestCount.getAndIncrement(), responseBodies.size() - 1);
+            String responseBody = responseBodies.get(responseIndex);
             byte[] responseBytes = responseBody.getBytes();
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, responseBytes.length);

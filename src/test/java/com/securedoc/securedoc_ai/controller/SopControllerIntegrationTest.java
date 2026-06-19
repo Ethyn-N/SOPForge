@@ -29,6 +29,7 @@ import org.springframework.util.FileSystemUtils;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
@@ -111,8 +112,11 @@ class SopControllerIntegrationTest {
                 .andExpect(jsonPath("$.procedure").value(containsString("Step one")))
                 .andExpect(jsonPath("$.roles").value(containsString(userOne.getEmail())))
                 .andExpect(jsonPath("$.status").value("DRAFT"))
-                .andExpect(jsonPath("$.sourceDocumentId").value(document.getId()))
-                .andExpect(jsonPath("$.sourceDocumentOriginalFileName").value("policy.txt"))
+                .andExpect(jsonPath("$.sourceDocumentId").doesNotExist())
+                .andExpect(jsonPath("$.sourceDocumentOriginalFileName").doesNotExist())
+                .andExpect(jsonPath("$.sourceDocumentIds", hasSize(1)))
+                .andExpect(jsonPath("$.sourceDocumentIds[0]").value(document.getId()))
+                .andExpect(jsonPath("$.sourceDocumentOriginalFileNames[0]").value("policy.txt"))
                 .andExpect(jsonPath("$.ownerId").value(userOne.getId()))
                 .andExpect(jsonPath("$.ownerEmail").value(userOne.getEmail()))
                 .andExpect(jsonPath("$.createdAt").exists())
@@ -122,7 +126,7 @@ class SopControllerIntegrationTest {
 
         Sop savedSop = sopRepository.findByOwner(userOne).getFirst();
         assertEquals(SopStatus.DRAFT, savedSop.getStatus());
-        assertEquals(document.getId(), savedSop.getSourceDocument().getId());
+        assertEquals(document.getId(), savedSop.getSourceDocuments().getFirst().getId());
         assertEquals(userOne.getId(), savedSop.getOwner().getId());
         assertTrue(savedSop.getProcedure().contains("Step two"));
         assertEquals(1, sopVersionRepository.countBySop(savedSop));
@@ -158,6 +162,82 @@ class SopControllerIntegrationTest {
     }
 
     @Test
+    void generateSopFromMultipleDocumentsCreatesDraftSopAndTracksSources() throws Exception {
+        uploadTextDocument("server.txt", "Server duty text", userOneToken);
+        uploadTextDocument("sanitation.txt", "Sanitation policy text", userOneToken);
+        Document serverDocument = findDocumentByOriginalFileName(userOne, "server.txt");
+        Document sanitationDocument = findDocumentByOriginalFileName(userOne, "sanitation.txt");
+
+        mockMvc.perform(post("/api/sops/generate")
+                        .header("Authorization", bearer(userOneToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Restaurant Service SOP",
+                                  "sourceDocumentIds": [%d, %d],
+                                  "instructions": "Focus on server duties and sanitation."
+                                }
+                                """.formatted(serverDocument.getId(), sanitationDocument.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").exists())
+                .andExpect(jsonPath("$.title").value("Restaurant Service SOP"))
+                .andExpect(jsonPath("$.procedure").value(containsString("Server duty text")))
+                .andExpect(jsonPath("$.procedure").value(containsString("Sanitation policy text")))
+                .andExpect(jsonPath("$.sourceDocumentId").doesNotExist())
+                .andExpect(jsonPath("$.sourceDocumentIds", hasSize(2)))
+                .andExpect(jsonPath("$.sourceDocumentIds[0]").value(serverDocument.getId()))
+                .andExpect(jsonPath("$.sourceDocumentIds[1]").value(sanitationDocument.getId()))
+                .andExpect(jsonPath("$.sourceDocumentOriginalFileNames[0]").value("server.txt"))
+                .andExpect(jsonPath("$.sourceDocumentOriginalFileNames[1]").value("sanitation.txt"))
+                .andExpect(jsonPath("$.status").value("DRAFT"));
+
+        Sop savedSop = sopRepository.findByOwner(userOne).getFirst();
+        assertEquals(1, sopRepository.count());
+        assertEquals(1, sopVersionRepository.countBySop(savedSop));
+    }
+
+    @Test
+    void generateSopFromMultipleDocumentsRejectsOtherUsersDocument() throws Exception {
+        uploadTextDocument("own.txt", "Own text", userOneToken);
+        uploadTextDocument("private.txt", "Private text", userTwoToken);
+        Document ownDocument = findDocumentByOriginalFileName(userOne, "own.txt");
+        Document otherUsersDocument = findDocumentByOriginalFileName(userTwo, "private.txt");
+
+        mockMvc.perform(post("/api/sops/generate")
+                        .header("Authorization", bearer(userOneToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Unauthorized Multi SOP",
+                                  "sourceDocumentIds": [%d, %d]
+                                }
+                                """.formatted(ownDocument.getId(), otherUsersDocument.getId())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(
+                        "document with id " + otherUsersDocument.getId() + " does not exist"
+                ));
+
+        assertEquals(0, sopRepository.count());
+    }
+
+    @Test
+    void generateSopFromMultipleDocumentsRejectsEmptySourceList() throws Exception {
+        mockMvc.perform(post("/api/sops/generate")
+                        .header("Authorization", bearer(userOneToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Empty SOP",
+                                  "sourceDocumentIds": []
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("At least one source document is required."));
+
+        assertEquals(0, sopRepository.count());
+    }
+
+    @Test
     void getSopsOnlyReturnsAuthenticatedUsersSops() throws Exception {
         Sop ownSop = saveSopFor(userOne, "User One SOP");
         saveSopFor(userTwo, "User Two SOP");
@@ -187,7 +267,7 @@ class SopControllerIntegrationTest {
                 .andExpect(jsonPath("$.procedure").value("1. Test procedure."))
                 .andExpect(jsonPath("$.roles").value("Server"))
                 .andExpect(jsonPath("$.status").value("DRAFT"))
-                .andExpect(jsonPath("$.sourceDocumentId").value(ownSop.getSourceDocument().getId()))
+                .andExpect(jsonPath("$.sourceDocumentIds[0]").value(ownSop.getSourceDocuments().getFirst().getId()))
                 .andExpect(jsonPath("$.ownerId").value(userOne.getId()));
     }
 
@@ -495,6 +575,14 @@ class SopControllerIntegrationTest {
         return documentRepository.save(document);
     }
 
+    private Document findDocumentByOriginalFileName(User owner, String originalFileName) {
+        return documentRepository.findByOwner(owner)
+                .stream()
+                .filter(document -> document.getOriginalFileName().equals(originalFileName))
+                .findFirst()
+                .orElseThrow();
+    }
+
     private Sop saveSopFor(User owner, String title) {
         return saveSopFor(owner, title, SopStatus.DRAFT);
     }
@@ -518,7 +606,7 @@ class SopControllerIntegrationTest {
                 "Test scope.",
                 "1. Test procedure.",
                 "Server",
-                savedDocument,
+                List.of(savedDocument),
                 owner
         );
         sop.setStatus(status);
@@ -536,11 +624,15 @@ class SopControllerIntegrationTest {
         @Bean
         @Primary
         AiSopGenerator testAiSopGenerator() {
-            return (document, user) -> new GeneratedSopDraft(
-                    "SOP for " + document.getOriginalFileName(),
+            return (documents, requestedTitle, _, user) -> new GeneratedSopDraft(
+                    requestedTitle == null || requestedTitle.isBlank()
+                            ? "SOP for " + documents.getFirst().getOriginalFileName()
+                            : requestedTitle,
                     "Test purpose generated from AI.",
                     "Test scope generated from AI.",
-                    "Test procedure generated from: " + document.getExtractedText(),
+                    "Test procedure generated from: " + documents.stream()
+                            .map(Document::getExtractedText)
+                            .toList(),
                     "Owner: " + user.getEmail() + "\nReviewer: TBD\nApprover: TBD"
             );
         }

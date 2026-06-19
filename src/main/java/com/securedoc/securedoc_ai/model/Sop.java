@@ -6,6 +6,8 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Getter
 @NoArgsConstructor
@@ -37,10 +39,13 @@ public class Sop {
     @Column(columnDefinition = "TEXT")
     private String roles;
 
-    @Setter
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "source_document_id", nullable = false)
-    private Document sourceDocument;
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+            name = "sop_source_documents",
+            joinColumns = @JoinColumn(name = "sop_id"),
+            inverseJoinColumns = @JoinColumn(name = "document_id")
+    )
+    private List<Document> sourceDocuments = new ArrayList<>();
 
     @Setter
     @ManyToOne(fetch = FetchType.LAZY)
@@ -66,7 +71,7 @@ public class Sop {
             String scope,
             String procedure,
             String roles,
-            Document sourceDocument,
+            List<Document> sourceDocuments,
             User owner
     ) {
         this.title = title;
@@ -74,10 +79,14 @@ public class Sop {
         this.scope = scope;
         this.procedure = procedure;
         this.roles = roles;
-        this.sourceDocument = sourceDocument;
+        this.sourceDocuments = new ArrayList<>(sourceDocuments);
         this.owner = owner;
         this.status = SopStatus.DRAFT;
         this.createdAt = LocalDateTime.now();
         this.updatedAt = this.createdAt;
+    }
+
+    public void setSourceDocuments(List<Document> sourceDocuments) {
+        this.sourceDocuments = new ArrayList<>(sourceDocuments);
     }
 }

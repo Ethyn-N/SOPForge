@@ -1,5 +1,6 @@
 package com.securedoc.securedoc_ai.controller;
 
+import com.securedoc.securedoc_ai.dto.SopGenerateRequest;
 import com.securedoc.securedoc_ai.dto.SopResponse;
 import com.securedoc.securedoc_ai.dto.SopUpdateRequest;
 import com.securedoc.securedoc_ai.dto.SopVersionResponse;
@@ -65,6 +66,15 @@ public class SopController {
             @AuthenticationPrincipal User user
     ) {
         Sop sop = sopService.generateSop(documentId, user);
+        return new SopResponse(sop);
+    }
+
+    @PostMapping("/sops/generate")
+    public SopResponse generateSopFromDocuments(
+            @RequestBody SopGenerateRequest request,
+            @AuthenticationPrincipal User user
+    ) {
+        Sop sop = sopService.generateSop(request, user);
         return new SopResponse(sop);
     }
 
