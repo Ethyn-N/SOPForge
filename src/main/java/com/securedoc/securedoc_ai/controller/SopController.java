@@ -1,5 +1,6 @@
 package com.securedoc.securedoc_ai.controller;
 
+import com.securedoc.securedoc_ai.dto.RelevancePreviewResponse;
 import com.securedoc.securedoc_ai.dto.SopGenerateRequest;
 import com.securedoc.securedoc_ai.dto.SopResponse;
 import com.securedoc.securedoc_ai.dto.SopUpdateRequest;
@@ -76,6 +77,14 @@ public class SopController {
     ) {
         Sop sop = sopService.generateSop(request, user);
         return new SopResponse(sop);
+    }
+
+    @PostMapping("/sops/relevance-preview")
+    public RelevancePreviewResponse previewRelevance(
+            @RequestBody SopGenerateRequest request,
+            @AuthenticationPrincipal User user
+    ) {
+        return sopService.previewRelevance(request, user);
     }
 
     @PatchMapping("/sops/{id}")

@@ -1,5 +1,7 @@
 package com.securedoc.securedoc_ai.service;
 
+import com.securedoc.securedoc_ai.dto.RelevanceChunkResponse;
+import com.securedoc.securedoc_ai.dto.RelevancePreviewResponse;
 import com.securedoc.securedoc_ai.dto.SopGenerateRequest;
 import com.securedoc.securedoc_ai.dto.SopUpdateRequest;
 import com.securedoc.securedoc_ai.model.Document;
@@ -57,6 +59,27 @@ public class SopService {
         return generateSop(new SopGenerateRequest(null, List.of(documentId), null), user);
     }
 
+    public RelevancePreviewResponse previewRelevance(SopGenerateRequest request, User user) {
+        if (request == null) {
+            throw new IllegalStateException("At least one source document is required.");
+        }
+
+        List<Document> documents = getSourceDocuments(request.sourceDocumentIds(), user);
+        DocumentChunkService.RelevancePreview relevancePreview = documentChunkService.buildRelevancePreview(
+                documents,
+                request.title(),
+                request.instructions()
+        );
+
+        return new RelevancePreviewResponse(
+                relevancePreview.queryTerms(),
+                relevancePreview.chunks()
+                        .stream()
+                        .map(this::toRelevanceChunkResponse)
+                        .toList()
+        );
+    }
+
     public Sop generateSop(SopGenerateRequest request, User user) {
         if (request == null) {
             throw new IllegalStateException("At least one source document is required.");
@@ -97,6 +120,32 @@ public class SopService {
         createVersion(savedSop, user, "Generated SOP");
 
         return savedSop;
+    }
+
+    private RelevanceChunkResponse toRelevanceChunkResponse(DocumentChunkService.RelevanceChunk relevanceChunk) {
+        return new RelevanceChunkResponse(
+                relevanceChunk.document().getId(),
+                relevanceChunk.document().getOriginalFileName(),
+                relevanceChunk.chunk().getId(),
+                relevanceChunk.chunk().getChunkIndex(),
+                relevanceChunk.score(),
+                relevanceChunk.matchedTerms(),
+                preview(relevanceChunk.chunk().getContent())
+        );
+    }
+
+    private String preview(String content) {
+        if (content == null) {
+            return "";
+        }
+
+        String compactContent = content.replaceAll("\\s+", " ").trim();
+
+        if (compactContent.length() <= 300) {
+            return compactContent;
+        }
+
+        return compactContent.substring(0, 300) + "...";
     }
 
     private List<Document> getSourceDocuments(List<Long> sourceDocumentIds, User user) {

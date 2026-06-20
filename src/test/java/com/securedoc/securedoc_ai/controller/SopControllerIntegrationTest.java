@@ -32,6 +32,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -235,6 +236,61 @@ class SopControllerIntegrationTest {
                 .andExpect(jsonPath("$.message").value("At least one source document is required."));
 
         assertEquals(0, sopRepository.count());
+    }
+
+    @Test
+    void previewRelevanceReturnsSelectedChunksAndMatchedTerms() throws Exception {
+        uploadTextDocument("server.txt", "Server duties include POS payments and closing side work.", userOneToken);
+        uploadTextDocument("sanitation.txt", "Sanitation steps include food storage and clean work areas.", userOneToken);
+        Document serverDocument = findDocumentByOriginalFileName(userOne, "server.txt");
+        Document sanitationDocument = findDocumentByOriginalFileName(userOne, "sanitation.txt");
+
+        mockMvc.perform(post("/api/sops/relevance-preview")
+                        .header("Authorization", bearer(userOneToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Restaurant Service SOP",
+                                  "sourceDocumentIds": [%d, %d],
+                                  "instructions": "Focus on server duties, sanitation, and closing side work."
+                                }
+                                """.formatted(serverDocument.getId(), sanitationDocument.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.queryTerms", hasItem("server")))
+                .andExpect(jsonPath("$.queryTerms", hasItem("sanitation")))
+                .andExpect(jsonPath("$.queryTerms", hasItem("closing")))
+                .andExpect(jsonPath("$.chunks", hasSize(2)))
+                .andExpect(jsonPath("$.chunks[0].documentId").value(serverDocument.getId()))
+                .andExpect(jsonPath("$.chunks[0].originalFileName").value("server.txt"))
+                .andExpect(jsonPath("$.chunks[0].score").value(5))
+                .andExpect(jsonPath("$.chunks[0].matchedTerms", hasItem("server")))
+                .andExpect(jsonPath("$.chunks[0].matchedTerms", hasItem("duties")))
+                .andExpect(jsonPath("$.chunks[0].contentPreview").value(containsString("closing side work")))
+                .andExpect(jsonPath("$.chunks[1].documentId").value(sanitationDocument.getId()))
+                .andExpect(jsonPath("$.chunks[1].score").value(2))
+                .andExpect(jsonPath("$.chunks[1].matchedTerms", hasItem("sanitation")));
+    }
+
+    @Test
+    void previewRelevanceRejectsOtherUsersDocument() throws Exception {
+        uploadTextDocument("own.txt", "Own text", userOneToken);
+        uploadTextDocument("private.txt", "Private text", userTwoToken);
+        Document ownDocument = findDocumentByOriginalFileName(userOne, "own.txt");
+        Document otherUsersDocument = findDocumentByOriginalFileName(userTwo, "private.txt");
+
+        mockMvc.perform(post("/api/sops/relevance-preview")
+                        .header("Authorization", bearer(userOneToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Unauthorized Preview",
+                                  "sourceDocumentIds": [%d, %d]
+                                }
+                                """.formatted(ownDocument.getId(), otherUsersDocument.getId())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(
+                        "document with id " + otherUsersDocument.getId() + " does not exist"
+                ));
     }
 
     @Test

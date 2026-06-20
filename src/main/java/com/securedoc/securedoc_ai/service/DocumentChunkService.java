@@ -64,6 +64,20 @@ public class DocumentChunkService {
                 .toList();
     }
 
+    public RelevancePreview buildRelevancePreview(
+            List<Document> documents,
+            String requestedTitle,
+            String instructions
+    ) {
+        Set<String> queryTerms = queryTerms(requestedTitle, instructions);
+
+        List<RelevanceChunk> relevanceChunks = documents.stream()
+                .flatMap(document -> relevantChunks(document, queryTerms).stream())
+                .toList();
+
+        return new RelevancePreview(List.copyOf(queryTerms), relevanceChunks);
+    }
+
     private Document promptDocument(Document document, String relevantText) {
         Document promptDocument = new Document(
                 document.getOriginalFileName(),
@@ -81,49 +95,60 @@ public class DocumentChunkService {
     }
 
     private String relevantText(Document document, Set<String> queryTerms) {
+        return joinChunks(relevantChunks(document, queryTerms).stream()
+                .map(RelevanceChunk::chunk)
+                .toList());
+    }
+
+    private List<RelevanceChunk> relevantChunks(Document document, Set<String> queryTerms) {
         List<DocumentChunk> chunks = getChunks(document);
 
         if (chunks.isEmpty()) {
-            return document.getExtractedText();
+            return List.of(new RelevanceChunk(
+                    document,
+                    new DocumentChunk(document, 0, document.getExtractedText()),
+                    0,
+                    List.of()
+            ));
         }
 
         if (queryTerms.isEmpty()) {
-            return joinChunks(chunks.stream()
+            return chunks.stream()
                     .limit(MAX_CHUNKS_FOR_AI)
-                    .toList());
+                    .map(chunk -> new RelevanceChunk(document, chunk, 0, List.of()))
+                    .toList();
         }
 
-        List<ScoredChunk> scoredChunks = chunks.stream()
-                .map(chunk -> new ScoredChunk(chunk, relevanceScore(chunk, queryTerms)))
+        List<RelevanceChunk> scoredChunks = chunks.stream()
+                .map(chunk -> new RelevanceChunk(document, chunk, matchedTerms(chunk, queryTerms)))
                 .filter(scoredChunk -> scoredChunk.score() > 0)
-                .sorted(Comparator.comparingInt(ScoredChunk::score).reversed()
+                .sorted(Comparator.comparingInt(RelevanceChunk::score).reversed()
                         .thenComparing(scoredChunk -> scoredChunk.chunk().getChunkIndex()))
                 .limit(MAX_CHUNKS_FOR_AI)
                 .sorted(Comparator.comparing(scoredChunk -> scoredChunk.chunk().getChunkIndex()))
                 .toList();
 
         if (scoredChunks.isEmpty()) {
-            return joinChunks(chunks.stream()
+            return chunks.stream()
                     .limit(MAX_CHUNKS_FOR_AI)
-                    .toList());
+                    .map(chunk -> new RelevanceChunk(document, chunk, 0, List.of()))
+                    .toList();
         }
 
-        return joinChunks(scoredChunks.stream()
-                .map(ScoredChunk::chunk)
-                .toList());
+        return scoredChunks;
     }
 
-    private int relevanceScore(DocumentChunk chunk, Set<String> queryTerms) {
+    private List<String> matchedTerms(DocumentChunk chunk, Set<String> queryTerms) {
         String content = chunk.getContent().toLowerCase(Locale.ROOT);
-        int score = 0;
+        List<String> matchedTerms = new ArrayList<>();
 
         for (String queryTerm : queryTerms) {
             if (content.contains(queryTerm)) {
-                score++;
+                matchedTerms.add(queryTerm);
             }
         }
 
-        return score;
+        return matchedTerms;
     }
 
     private Set<String> queryTerms(String requestedTitle, String instructions) {
@@ -191,6 +216,18 @@ public class DocumentChunkService {
         return value == null || value.isBlank();
     }
 
-    private record ScoredChunk(DocumentChunk chunk, int score) {
+    public record RelevancePreview(List<String> queryTerms, List<RelevanceChunk> chunks) {
+    }
+
+    public record RelevanceChunk(
+            Document document,
+            DocumentChunk chunk,
+            int score,
+            List<String> matchedTerms
+    ) {
+
+        RelevanceChunk(Document document, DocumentChunk chunk, List<String> matchedTerms) {
+            this(document, chunk, matchedTerms.size(), matchedTerms);
+        }
     }
 }
