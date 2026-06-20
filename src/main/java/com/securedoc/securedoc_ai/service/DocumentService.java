@@ -12,6 +12,7 @@ import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.poi.xwpf.extractor.XWPFWordExtractor;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -36,6 +37,7 @@ public class DocumentService {
 
     private final DocumentRepository documentRepository;
     private final StorageProperties storageProperties;
+    private final DocumentChunkService documentChunkService;
 
     public List<Document> getDocuments(User user) {
         return documentRepository.findByOwner(user);
@@ -59,6 +61,7 @@ public class DocumentService {
         return storedFilePath;
     }
 
+    @Transactional
     public Document uploadDocument(MultipartFile file, User user) {
         validateUpload(file);
 
@@ -93,9 +96,13 @@ public class DocumentService {
         document.setUploadedAt(LocalDateTime.now());
         extractText(document, storedFilePath);
 
-        return documentRepository.save(document);
+        Document savedDocument = documentRepository.save(document);
+        documentChunkService.createChunks(savedDocument);
+
+        return savedDocument;
     }
 
+    @Transactional
     public void deleteDocument(Long id, User user) {
         Document document = documentRepository.findByIdAndOwner(id, user)
                 .orElseThrow(() -> new IllegalStateException(
@@ -103,6 +110,7 @@ public class DocumentService {
                 ));
 
         deleteStoredFile(document);
+        documentChunkService.deleteChunks(document);
         documentRepository.delete(document);
     }
 

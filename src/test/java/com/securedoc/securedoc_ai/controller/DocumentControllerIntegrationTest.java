@@ -4,6 +4,7 @@ import com.securedoc.securedoc_ai.config.StorageProperties;
 import com.securedoc.securedoc_ai.model.Document;
 import com.securedoc.securedoc_ai.model.ExtractionStatus;
 import com.securedoc.securedoc_ai.model.User;
+import com.securedoc.securedoc_ai.repository.DocumentChunkRepository;
 import com.securedoc.securedoc_ai.repository.DocumentRepository;
 import com.securedoc.securedoc_ai.repository.UserRepository;
 import com.securedoc.securedoc_ai.service.JwtService;
@@ -67,6 +68,9 @@ class DocumentControllerIntegrationTest {
     private DocumentRepository documentRepository;
 
     @Autowired
+    private DocumentChunkRepository documentChunkRepository;
+
+    @Autowired
     private JwtService jwtService;
 
     @Autowired
@@ -80,6 +84,7 @@ class DocumentControllerIntegrationTest {
     @BeforeEach
     void setUp() throws IOException {
         FileSystemUtils.deleteRecursively(Path.of(storageProperties.getUploadDir()));
+        documentChunkRepository.deleteAll();
         documentRepository.deleteAll();
         userRepository.deleteAll();
 
@@ -131,6 +136,7 @@ class DocumentControllerIntegrationTest {
         assertEquals("/uploads/documents/" + savedDocument.getStoredFileName(), savedDocument.getStorageUrl());
         assertEquals("policy content", savedDocument.getExtractedText());
         assertEquals(ExtractionStatus.SUCCESS, savedDocument.getExtractionStatus());
+        assertEquals(1, documentChunkRepository.findByDocumentOrderByChunkIndexAsc(savedDocument).size());
     }
 
     @Test
@@ -287,6 +293,42 @@ class DocumentControllerIntegrationTest {
         Document otherUsersDocument = saveDocumentFor(userTwo, "private.pdf");
 
         mockMvc.perform(get("/api/documents/{id}/text", otherUsersDocument.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(
+                        "document with id " + otherUsersDocument.getId() + " does not exist"
+                ));
+    }
+
+    @Test
+    void getDocumentChunksReturnsChunksForOwner() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "policy.txt",
+                "text/plain",
+                "server duties and sanitation steps".getBytes()
+        );
+
+        mockMvc.perform(multipart("/api/documents")
+                .file(file)
+                .header("Authorization", bearer(userOneToken)));
+
+        Document document = documentRepository.findByOwner(userOne).getFirst();
+
+        mockMvc.perform(get("/api/documents/{id}/chunks", document.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].documentId").value(document.getId()))
+                .andExpect(jsonPath("$[0].chunkIndex").value(0))
+                .andExpect(jsonPath("$[0].content").value("server duties and sanitation steps"));
+    }
+
+    @Test
+    void getDocumentChunksRejectsDocumentOwnedByAnotherUser() throws Exception {
+        Document otherUsersDocument = saveDocumentFor(userTwo, "private.pdf");
+
+        mockMvc.perform(get("/api/documents/{id}/chunks", otherUsersDocument.getId())
                         .header("Authorization", bearer(userOneToken)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value(

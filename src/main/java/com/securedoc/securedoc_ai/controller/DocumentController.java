@@ -1,9 +1,11 @@
 package com.securedoc.securedoc_ai.controller;
 
+import com.securedoc.securedoc_ai.dto.DocumentChunkResponse;
 import com.securedoc.securedoc_ai.dto.DocumentResponse;
 import com.securedoc.securedoc_ai.dto.DocumentTextResponse;
 import com.securedoc.securedoc_ai.model.Document;
 import com.securedoc.securedoc_ai.model.User;
+import com.securedoc.securedoc_ai.service.DocumentChunkService;
 import com.securedoc.securedoc_ai.service.DocumentService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
@@ -26,6 +28,7 @@ import java.util.List;
 public class DocumentController {
 
     private final DocumentService documentService;
+    private final DocumentChunkService documentChunkService;
 
     @GetMapping
     public List<DocumentResponse> getDocuments(@AuthenticationPrincipal User user) {
@@ -51,6 +54,18 @@ public class DocumentController {
     ) {
         Document document = documentService.getDocument(id, user);
         return new DocumentTextResponse(document);
+    }
+
+    @GetMapping("/{id}/chunks")
+    public List<DocumentChunkResponse> getDocumentChunks(
+            @PathVariable Long id,
+            @AuthenticationPrincipal User user
+    ) {
+        Document document = documentService.getDocument(id, user);
+        return documentChunkService.getChunks(document)
+                .stream()
+                .map(DocumentChunkResponse::new)
+                .toList();
     }
 
     @GetMapping("/{id}/download")

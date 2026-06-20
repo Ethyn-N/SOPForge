@@ -23,6 +23,7 @@ import java.util.List;
 public class SopService {
 
     private final DocumentService documentService;
+    private final DocumentChunkService documentChunkService;
     private final SopRepository sopRepository;
     private final SopVersionRepository sopVersionRepository;
     private final AiSopGenerator aiSopGenerator;
@@ -69,8 +70,14 @@ public class SopService {
             }
         }
 
-        GeneratedSopDraft generatedSopDraft = aiSopGenerator.generate(
+        List<Document> promptDocuments = documentChunkService.buildRelevantPromptDocuments(
                 documents,
+                request.title(),
+                request.instructions()
+        );
+
+        GeneratedSopDraft generatedSopDraft = aiSopGenerator.generate(
+                promptDocuments,
                 request.title(),
                 request.instructions(),
                 user
