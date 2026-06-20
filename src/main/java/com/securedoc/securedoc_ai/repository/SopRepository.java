@@ -10,9 +10,9 @@ import java.util.Optional;
 
 public interface SopRepository extends JpaRepository<Sop, Long> {
 
-    @EntityGraph(attributePaths = {"sourceDocuments", "owner"})
+    @EntityGraph(attributePaths = {"sourceDocuments", "sourceChunks", "sourceChunks.documentChunk", "sourceChunks.documentChunk.document", "owner"})
     List<Sop> findByOwner(User owner);
 
-    @EntityGraph(attributePaths = {"sourceDocuments", "owner"})
+    @EntityGraph(attributePaths = {"sourceDocuments", "sourceChunks", "sourceChunks.documentChunk", "sourceChunks.documentChunk.document", "owner"})
     Optional<Sop> findByIdAndOwner(Long id, User owner);
 }

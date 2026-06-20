@@ -3,6 +3,7 @@ package com.securedoc.securedoc_ai.controller;
 import com.securedoc.securedoc_ai.dto.RelevancePreviewResponse;
 import com.securedoc.securedoc_ai.dto.SopGenerateRequest;
 import com.securedoc.securedoc_ai.dto.SopResponse;
+import com.securedoc.securedoc_ai.dto.SopSourceChunkResponse;
 import com.securedoc.securedoc_ai.dto.SopUpdateRequest;
 import com.securedoc.securedoc_ai.dto.SopVersionResponse;
 import com.securedoc.securedoc_ai.model.Sop;
@@ -49,6 +50,14 @@ public class SopController {
                 .stream()
                 .map(SopVersionResponse::new)
                 .toList();
+    }
+
+    @GetMapping("/sops/{id}/source-chunks")
+    public List<SopSourceChunkResponse> getSopSourceChunks(
+            @PathVariable Long id,
+            @AuthenticationPrincipal User user
+    ) {
+        return sopService.getSopSourceChunks(id, user);
     }
 
     @GetMapping("/sops/{id}/versions/{versionId}")

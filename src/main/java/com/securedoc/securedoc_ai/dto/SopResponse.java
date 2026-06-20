@@ -20,6 +20,7 @@ public class SopResponse {
     private final SopStatus status;
     private final List<Long> sourceDocumentIds;
     private final List<String> sourceDocumentOriginalFileNames;
+    private final List<SopSourceChunkResponse> sourceChunks;
     private final Long ownerId;
     private final String ownerEmail;
     private final LocalDateTime createdAt;
@@ -40,6 +41,10 @@ public class SopResponse {
         this.sourceDocumentOriginalFileNames = sop.getSourceDocuments()
                 .stream()
                 .map(Document::getOriginalFileName)
+                .toList();
+        this.sourceChunks = sop.getSourceChunks()
+                .stream()
+                .map(SopSourceChunkResponse::new)
                 .toList();
         this.ownerId = sop.getOwner().getId();
         this.ownerEmail = sop.getOwner().getEmail();

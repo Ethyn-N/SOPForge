@@ -4,13 +4,16 @@ import com.securedoc.securedoc_ai.dto.RelevanceChunkResponse;
 import com.securedoc.securedoc_ai.dto.RelevancePreviewResponse;
 import com.securedoc.securedoc_ai.dto.SopGenerateRequest;
 import com.securedoc.securedoc_ai.dto.SopUpdateRequest;
+import com.securedoc.securedoc_ai.dto.SopSourceChunkResponse;
 import com.securedoc.securedoc_ai.model.Document;
 import com.securedoc.securedoc_ai.model.ExtractionStatus;
 import com.securedoc.securedoc_ai.model.Sop;
+import com.securedoc.securedoc_ai.model.SopSourceChunk;
 import com.securedoc.securedoc_ai.model.SopStatus;
 import com.securedoc.securedoc_ai.model.SopVersion;
 import com.securedoc.securedoc_ai.model.User;
 import com.securedoc.securedoc_ai.repository.SopRepository;
+import com.securedoc.securedoc_ai.repository.SopSourceChunkRepository;
 import com.securedoc.securedoc_ai.repository.SopVersionRepository;
 import com.securedoc.securedoc_ai.service.ai.AiSopGenerator;
 import com.securedoc.securedoc_ai.service.ai.GeneratedSopDraft;
@@ -27,6 +30,7 @@ public class SopService {
     private final DocumentService documentService;
     private final DocumentChunkService documentChunkService;
     private final SopRepository sopRepository;
+    private final SopSourceChunkRepository sopSourceChunkRepository;
     private final SopVersionRepository sopVersionRepository;
     private final AiSopGenerator aiSopGenerator;
 
@@ -44,6 +48,14 @@ public class SopService {
     public List<SopVersion> getSopVersions(Long sopId, User user) {
         Sop sop = getSop(sopId, user);
         return sopVersionRepository.findBySopOrderByVersionNumberAsc(sop);
+    }
+
+    public List<SopSourceChunkResponse> getSopSourceChunks(Long sopId, User user) {
+        Sop sop = getSop(sopId, user);
+        return sopSourceChunkRepository.findBySopOrderByDocumentChunkDocumentIdAscDocumentChunkChunkIndexAsc(sop)
+                .stream()
+                .map(SopSourceChunkResponse::new)
+                .toList();
     }
 
     public SopVersion getSopVersion(Long sopId, Long versionId, User user) {
@@ -93,6 +105,12 @@ public class SopService {
             }
         }
 
+        DocumentChunkService.RelevancePreview relevancePreview = documentChunkService.buildRelevancePreview(
+                documents,
+                request.title(),
+                request.instructions()
+        );
+
         List<Document> promptDocuments = documentChunkService.buildRelevantPromptDocuments(
                 documents,
                 request.title(),
@@ -115,11 +133,28 @@ public class SopService {
                 documents,
                 user
         );
+        sop.setSourceChunks(sourceChunksFor(sop, relevancePreview));
 
         Sop savedSop = sopRepository.save(sop);
         createVersion(savedSop, user, "Generated SOP");
 
         return savedSop;
+    }
+
+    private List<SopSourceChunk> sourceChunksFor(
+            Sop sop,
+            DocumentChunkService.RelevancePreview relevancePreview
+    ) {
+        return relevancePreview.chunks()
+                .stream()
+                .filter(relevanceChunk -> relevanceChunk.chunk().getId() != null)
+                .map(relevanceChunk -> new SopSourceChunk(
+                        sop,
+                        relevanceChunk.chunk(),
+                        relevanceChunk.score(),
+                        relevanceChunk.matchedTerms()
+                ))
+                .toList();
     }
 
     private RelevanceChunkResponse toRelevanceChunkResponse(DocumentChunkService.RelevanceChunk relevanceChunk) {

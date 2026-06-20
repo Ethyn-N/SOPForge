@@ -8,6 +8,7 @@ import com.securedoc.securedoc_ai.model.SopStatus;
 import com.securedoc.securedoc_ai.model.User;
 import com.securedoc.securedoc_ai.repository.DocumentRepository;
 import com.securedoc.securedoc_ai.repository.SopRepository;
+import com.securedoc.securedoc_ai.repository.SopSourceChunkRepository;
 import com.securedoc.securedoc_ai.repository.SopVersionRepository;
 import com.securedoc.securedoc_ai.repository.UserRepository;
 import com.securedoc.securedoc_ai.service.JwtService;
@@ -74,6 +75,9 @@ class SopControllerIntegrationTest {
     private SopVersionRepository sopVersionRepository;
 
     @Autowired
+    private SopSourceChunkRepository sopSourceChunkRepository;
+
+    @Autowired
     private JwtService jwtService;
 
     @Autowired
@@ -87,6 +91,7 @@ class SopControllerIntegrationTest {
     @BeforeEach
     void setUp() throws IOException {
         FileSystemUtils.deleteRecursively(Path.of(storageProperties.getUploadDir()));
+        sopSourceChunkRepository.deleteAll();
         sopVersionRepository.deleteAll();
         sopRepository.deleteAll();
         documentRepository.deleteAll();
@@ -190,11 +195,20 @@ class SopControllerIntegrationTest {
                 .andExpect(jsonPath("$.sourceDocumentIds[1]").value(sanitationDocument.getId()))
                 .andExpect(jsonPath("$.sourceDocumentOriginalFileNames[0]").value("server.txt"))
                 .andExpect(jsonPath("$.sourceDocumentOriginalFileNames[1]").value("sanitation.txt"))
+                .andExpect(jsonPath("$.sourceChunks", hasSize(2)))
+                .andExpect(jsonPath("$.sourceChunks[0].documentId").value(serverDocument.getId()))
+                .andExpect(jsonPath("$.sourceChunks[0].originalFileName").value("server.txt"))
+                .andExpect(jsonPath("$.sourceChunks[0].score").value(1))
+                .andExpect(jsonPath("$.sourceChunks[0].matchedTerms", hasItem("server")))
+                .andExpect(jsonPath("$.sourceChunks[1].documentId").value(sanitationDocument.getId()))
+                .andExpect(jsonPath("$.sourceChunks[1].score").value(1))
+                .andExpect(jsonPath("$.sourceChunks[1].matchedTerms", hasItem("sanitation")))
                 .andExpect(jsonPath("$.status").value("DRAFT"));
 
         Sop savedSop = sopRepository.findByOwner(userOne).getFirst();
         assertEquals(1, sopRepository.count());
         assertEquals(1, sopVersionRepository.countBySop(savedSop));
+        assertEquals(2, sopSourceChunkRepository.findBySopOrderByDocumentChunkDocumentIdAscDocumentChunkChunkIndexAsc(savedSop).size());
     }
 
     @Test
@@ -290,6 +304,52 @@ class SopControllerIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value(
                         "document with id " + otherUsersDocument.getId() + " does not exist"
+                ));
+    }
+
+    @Test
+    void getSopSourceChunksReturnsSavedGenerationEvidenceForOwner() throws Exception {
+        uploadTextDocument("server.txt", "Server duties include closing side work.", userOneToken);
+        uploadTextDocument("sanitation.txt", "Sanitation steps include clean work areas.", userOneToken);
+        Document serverDocument = findDocumentByOriginalFileName(userOne, "server.txt");
+        Document sanitationDocument = findDocumentByOriginalFileName(userOne, "sanitation.txt");
+
+        mockMvc.perform(post("/api/sops/generate")
+                .header("Authorization", bearer(userOneToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {
+                          "title": "Restaurant Service SOP",
+                          "sourceDocumentIds": [%d, %d],
+                          "instructions": "Focus on server duties, sanitation, and closing side work."
+                        }
+                        """.formatted(serverDocument.getId(), sanitationDocument.getId())));
+
+        Sop sop = sopRepository.findByOwner(userOne).getFirst();
+
+        mockMvc.perform(get("/api/sops/{id}/source-chunks", sop.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(2)))
+                .andExpect(jsonPath("$[0].documentId").value(serverDocument.getId()))
+                .andExpect(jsonPath("$[0].originalFileName").value("server.txt"))
+                .andExpect(jsonPath("$[0].score").value(5))
+                .andExpect(jsonPath("$[0].matchedTerms", hasItem("server")))
+                .andExpect(jsonPath("$[0].contentPreview").value(containsString("closing side work")))
+                .andExpect(jsonPath("$[1].documentId").value(sanitationDocument.getId()))
+                .andExpect(jsonPath("$[1].score").value(2))
+                .andExpect(jsonPath("$[1].matchedTerms", hasItem("sanitation")));
+    }
+
+    @Test
+    void getSopSourceChunksRejectsOtherUsersSop() throws Exception {
+        Sop otherUsersSop = saveSopFor(userTwo, "Other Source Chunk SOP");
+
+        mockMvc.perform(get("/api/sops/{id}/source-chunks", otherUsersSop.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(
+                        "sop with id " + otherUsersSop.getId() + " does not exist"
                 ));
     }
 

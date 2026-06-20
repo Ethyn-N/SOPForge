@@ -7,7 +7,9 @@ import lombok.Setter;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 @Getter
 @NoArgsConstructor
@@ -46,6 +48,9 @@ public class Sop {
             inverseJoinColumns = @JoinColumn(name = "document_id")
     )
     private List<Document> sourceDocuments = new ArrayList<>();
+
+    @OneToMany(mappedBy = "sop", cascade = CascadeType.ALL, orphanRemoval = true)
+    private Set<SopSourceChunk> sourceChunks = new LinkedHashSet<>();
 
     @Setter
     @ManyToOne(fetch = FetchType.LAZY)
@@ -86,7 +91,7 @@ public class Sop {
         this.updatedAt = this.createdAt;
     }
 
-    public void setSourceDocuments(List<Document> sourceDocuments) {
-        this.sourceDocuments = new ArrayList<>(sourceDocuments);
+    public void setSourceChunks(List<SopSourceChunk> sourceChunks) {
+        this.sourceChunks = new LinkedHashSet<>(sourceChunks);
     }
 }
