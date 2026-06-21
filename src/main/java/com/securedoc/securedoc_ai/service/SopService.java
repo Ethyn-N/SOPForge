@@ -5,7 +5,10 @@ import com.securedoc.securedoc_ai.dto.RelevancePreviewResponse;
 import com.securedoc.securedoc_ai.dto.SopGenerateRequest;
 import com.securedoc.securedoc_ai.dto.SopSourceChunkResponse;
 import com.securedoc.securedoc_ai.dto.SopUpdateRequest;
+import com.securedoc.securedoc_ai.exception.BadRequestException;
+import com.securedoc.securedoc_ai.exception.NotFoundException;
 import com.securedoc.securedoc_ai.model.Company;
+import com.securedoc.securedoc_ai.model.CompanyRole;
 import com.securedoc.securedoc_ai.model.Document;
 import com.securedoc.securedoc_ai.model.ExtractionStatus;
 import com.securedoc.securedoc_ai.model.Sop;
@@ -43,20 +46,20 @@ public class SopService {
 
     public List<Sop> getSops(Long companyId, User user) {
         Company company = companyService.getCompanyForUser(companyId, user);
-        return sopRepository.findByOwnerAndCompany(user, company);
+        return sopRepository.findByCompany(company);
     }
 
     public Sop getSop(Long id, User user) {
         return sopRepository.findByIdAndOwner(id, user)
-                .orElseThrow(() -> new IllegalStateException(
+                .orElseThrow(() -> new NotFoundException(
                         "sop with id " + id + " does not exist"
                 ));
     }
 
     public Sop getSop(Long id, Long companyId, User user) {
         Company company = companyService.getCompanyForUser(companyId, user);
-        return sopRepository.findByIdAndOwnerAndCompany(id, user, company)
-                .orElseThrow(() -> new IllegalStateException(
+        return sopRepository.findByIdAndCompany(id, company)
+                .orElseThrow(() -> new NotFoundException(
                         "sop with id " + id + " does not exist"
                 ));
     }
@@ -78,13 +81,13 @@ public class SopService {
         Sop sop = getSop(sopId, user);
 
         return sopVersionRepository.findByIdAndSop(versionId, sop)
-                .orElseThrow(() -> new IllegalStateException(
+                .orElseThrow(() -> new NotFoundException(
                         "version with id " + versionId + " does not exist"
                 ));
     }
 
     public List<Document> getGenerationDocuments(Long companyId, User user) {
-        companyService.getCompanyForUser(companyId, user);
+        companyService.requireCompanyRole(companyId, user, CompanyRole.OWNER, CompanyRole.ADMIN);
 
         return documentService.getDocuments(companyId, user)
                 .stream()
@@ -101,10 +104,12 @@ public class SopService {
 
     public RelevancePreviewResponse previewRelevance(SopGenerateRequest request, User user, Long companyId) {
         if (request == null) {
-            throw new IllegalStateException("At least one source document is required.");
+            throw new BadRequestException("At least one source document is required.");
         }
 
-        Company company = companyId == null ? null : companyService.getCompanyForUser(companyId, user);
+        Company company = companyId == null
+                ? null
+                : companyService.requireCompanyRole(companyId, user, CompanyRole.OWNER, CompanyRole.ADMIN);
         List<Document> documents = getSourceDocuments(request.sourceDocumentIds(), user, company);
         DocumentChunkService.RelevancePreview relevancePreview = documentChunkService.buildRelevancePreview(
                 documents,
@@ -128,15 +133,17 @@ public class SopService {
 
     public Sop generateSop(SopGenerateRequest request, User user, Long companyId) {
         if (request == null) {
-            throw new IllegalStateException("At least one source document is required.");
+            throw new BadRequestException("At least one source document is required.");
         }
 
-        Company company = companyId == null ? null : companyService.getCompanyForUser(companyId, user);
+        Company company = companyId == null
+                ? null
+                : companyService.requireCompanyRole(companyId, user, CompanyRole.OWNER, CompanyRole.ADMIN);
         List<Document> documents = getSourceDocuments(request.sourceDocumentIds(), user, company);
 
         for (Document document : documents) {
             if (document.getExtractionStatus() != ExtractionStatus.SUCCESS || isBlank(document.getExtractedText())) {
-                throw new IllegalStateException("Document text must be successfully extracted before generating an SOP.");
+                throw new BadRequestException("Document text must be successfully extracted before generating an SOP.");
             }
         }
 
@@ -225,7 +232,7 @@ public class SopService {
 
     private List<Document> getSourceDocuments(List<Long> sourceDocumentIds, User user, Company company) {
         if (sourceDocumentIds == null || sourceDocumentIds.isEmpty()) {
-            throw new IllegalStateException("At least one source document is required.");
+            throw new BadRequestException("At least one source document is required.");
         }
 
         return sourceDocumentIds.stream()
@@ -245,7 +252,27 @@ public class SopService {
     public Sop updateSop(Long id, SopUpdateRequest request, User user) {
         Sop sop = getSop(id, user);
         requireStatus(sop, List.of(SopStatus.DRAFT, SopStatus.REJECTED), "edited");
+        applyUpdates(sop, request);
 
+        Sop savedSop = sopRepository.save(sop);
+        createVersion(savedSop, user, "Edited SOP");
+
+        return savedSop;
+    }
+
+    public Sop updateSop(Long id, Long companyId, SopUpdateRequest request, User user) {
+        companyService.requireCompanyRole(companyId, user, CompanyRole.OWNER, CompanyRole.ADMIN);
+        Sop sop = getSop(id, companyId, user);
+        requireStatus(sop, List.of(SopStatus.DRAFT, SopStatus.REJECTED), "edited");
+        applyUpdates(sop, request);
+
+        Sop savedSop = sopRepository.save(sop);
+        createVersion(savedSop, user, "Edited SOP");
+
+        return savedSop;
+    }
+
+    private void applyUpdates(Sop sop, SopUpdateRequest request) {
         if (request.title() != null) {
             sop.setTitle(requiredUpdate(request.title(), "title"));
         }
@@ -267,11 +294,6 @@ public class SopService {
         }
 
         sop.setUpdatedAt(LocalDateTime.now());
-
-        Sop savedSop = sopRepository.save(sop);
-        createVersion(savedSop, user, "Edited SOP");
-
-        return savedSop;
     }
 
     public void deleteSop(Long id, User user) {
@@ -279,8 +301,22 @@ public class SopService {
         sopRepository.delete(sop);
     }
 
+    public void deleteSop(Long id, Long companyId, User user) {
+        companyService.requireCompanyRole(companyId, user, CompanyRole.OWNER, CompanyRole.ADMIN);
+        Sop sop = getSop(id, companyId, user);
+        sopRepository.delete(sop);
+    }
+
     public Sop submitSopForReview(Long id, User user) {
         Sop sop = getSop(id, user);
+        requireStatus(sop, List.of(SopStatus.DRAFT, SopStatus.REJECTED), "submitted for review");
+
+        return updateStatus(sop, SopStatus.PENDING_REVIEW, user, "Submitted for review");
+    }
+
+    public Sop submitSopForReview(Long id, Long companyId, User user) {
+        companyService.requireCompanyRole(companyId, user, CompanyRole.OWNER, CompanyRole.ADMIN, CompanyRole.REVIEWER);
+        Sop sop = getSop(id, companyId, user);
         requireStatus(sop, List.of(SopStatus.DRAFT, SopStatus.REJECTED), "submitted for review");
 
         return updateStatus(sop, SopStatus.PENDING_REVIEW, user, "Submitted for review");
@@ -293,6 +329,14 @@ public class SopService {
         return updateStatus(sop, SopStatus.APPROVED, user, "Approved SOP");
     }
 
+    public Sop approveSop(Long id, Long companyId, User user) {
+        companyService.requireCompanyRole(companyId, user, CompanyRole.OWNER, CompanyRole.ADMIN, CompanyRole.APPROVER);
+        Sop sop = getSop(id, companyId, user);
+        requireStatus(sop, List.of(SopStatus.PENDING_REVIEW), "approved");
+
+        return updateStatus(sop, SopStatus.APPROVED, user, "Approved SOP");
+    }
+
     public Sop rejectSop(Long id, User user) {
         Sop sop = getSop(id, user);
         requireStatus(sop, List.of(SopStatus.PENDING_REVIEW), "rejected");
@@ -300,8 +344,24 @@ public class SopService {
         return updateStatus(sop, SopStatus.REJECTED, user, "Rejected SOP");
     }
 
+    public Sop rejectSop(Long id, Long companyId, User user) {
+        companyService.requireCompanyRole(companyId, user, CompanyRole.OWNER, CompanyRole.ADMIN, CompanyRole.REVIEWER);
+        Sop sop = getSop(id, companyId, user);
+        requireStatus(sop, List.of(SopStatus.PENDING_REVIEW), "rejected");
+
+        return updateStatus(sop, SopStatus.REJECTED, user, "Rejected SOP");
+    }
+
     public Sop archiveSop(Long id, User user) {
         Sop sop = getSop(id, user);
+        requireStatus(sop, List.of(SopStatus.DRAFT, SopStatus.REJECTED, SopStatus.APPROVED), "archived");
+
+        return updateStatus(sop, SopStatus.ARCHIVED, user, "Archived SOP");
+    }
+
+    public Sop archiveSop(Long id, Long companyId, User user) {
+        companyService.requireCompanyRole(companyId, user, CompanyRole.OWNER, CompanyRole.ADMIN);
+        Sop sop = getSop(id, companyId, user);
         requireStatus(sop, List.of(SopStatus.DRAFT, SopStatus.REJECTED, SopStatus.APPROVED), "archived");
 
         return updateStatus(sop, SopStatus.ARCHIVED, user, "Archived SOP");
@@ -325,7 +385,7 @@ public class SopService {
 
     private void requireStatus(Sop sop, List<SopStatus> allowedStatuses, String action) {
         if (!allowedStatuses.contains(sop.getStatus())) {
-            throw new IllegalStateException(
+            throw new BadRequestException(
                     "SOP with status " + sop.getStatus() + " cannot be " + action + "."
             );
         }
@@ -333,7 +393,7 @@ public class SopService {
 
     private String requiredGenerated(String value, String fieldName) {
         if (isBlank(value)) {
-            throw new IllegalStateException("AI SOP generation did not return " + fieldName + ".");
+            throw new BadRequestException("AI SOP generation did not return " + fieldName + ".");
         }
 
         return value;
@@ -341,7 +401,7 @@ public class SopService {
 
     private String requiredUpdate(String value, String fieldName) {
         if (isBlank(value)) {
-            throw new IllegalStateException(fieldName + " must not be blank.");
+            throw new BadRequestException(fieldName + " must not be blank.");
         }
 
         return value;

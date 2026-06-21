@@ -12,9 +12,9 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
 
     List<Document> findByOwner(User owner);
 
-    List<Document> findByOwnerAndCompany(User owner, Company company);
+    List<Document> findByCompany(Company company);
 
     Optional<Document> findByIdAndOwner(Long id, User owner);
 
-    Optional<Document> findByIdAndOwnerAndCompany(Long id, User owner, Company company);
+    Optional<Document> findByIdAndCompany(Long id, Company company);
 }

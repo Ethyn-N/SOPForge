@@ -294,7 +294,7 @@ class DocumentControllerIntegrationTest {
 
         mockMvc.perform(get("/api/documents/{id}/text", otherUsersDocument.getId())
                         .header("Authorization", bearer(userOneToken)))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value(
                         "document with id " + otherUsersDocument.getId() + " does not exist"
                 ));
@@ -330,7 +330,7 @@ class DocumentControllerIntegrationTest {
 
         mockMvc.perform(get("/api/documents/{id}/chunks", otherUsersDocument.getId())
                         .header("Authorization", bearer(userOneToken)))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value(
                         "document with id " + otherUsersDocument.getId() + " does not exist"
                 ));
@@ -368,7 +368,7 @@ class DocumentControllerIntegrationTest {
 
         mockMvc.perform(get("/api/documents/{id}/download", otherUsersDocument.getId())
                         .header("Authorization", bearer(userOneToken)))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value(
                         "document with id " + otherUsersDocument.getId() + " does not exist"
                 ));
@@ -419,7 +419,7 @@ class DocumentControllerIntegrationTest {
 
         mockMvc.perform(delete("/api/documents/{id}", document.getId())
                         .header("Authorization", bearer(userOneToken)))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value(
                         "document with id " + document.getId() + " does not exist"
                 ));
@@ -434,7 +434,7 @@ class DocumentControllerIntegrationTest {
 
         mockMvc.perform(get("/api/documents/{id}", otherUsersDocument.getId())
                         .header("Authorization", bearer(userOneToken)))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value(
                         "document with id " + otherUsersDocument.getId() + " does not exist"
                 ));

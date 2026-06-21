@@ -1,7 +1,10 @@
 package com.securedoc.securedoc_ai.service;
 
 import com.securedoc.securedoc_ai.config.StorageProperties;
+import com.securedoc.securedoc_ai.exception.BadRequestException;
+import com.securedoc.securedoc_ai.exception.NotFoundException;
 import com.securedoc.securedoc_ai.model.Company;
+import com.securedoc.securedoc_ai.model.CompanyRole;
 import com.securedoc.securedoc_ai.model.Document;
 import com.securedoc.securedoc_ai.model.ExtractionStatus;
 import com.securedoc.securedoc_ai.model.User;
@@ -47,20 +50,20 @@ public class DocumentService {
 
     public List<Document> getDocuments(Long companyId, User user) {
         Company company = companyService.getCompanyForUser(companyId, user);
-        return documentRepository.findByOwnerAndCompany(user, company);
+        return documentRepository.findByCompany(company);
     }
 
     public Document getDocument(Long id, User user) {
         return documentRepository.findByIdAndOwner(id, user)
-                .orElseThrow(() -> new IllegalStateException(
+                .orElseThrow(() -> new NotFoundException(
                         "document with id " + id + " does not exist"
                 ));
     }
 
     public Document getDocument(Long id, Long companyId, User user) {
         Company company = companyService.getCompanyForUser(companyId, user);
-        return documentRepository.findByIdAndOwnerAndCompany(id, user, company)
-                .orElseThrow(() -> new IllegalStateException(
+        return documentRepository.findByIdAndCompany(id, company)
+                .orElseThrow(() -> new NotFoundException(
                         "document with id " + id + " does not exist"
                 ));
     }
@@ -70,7 +73,7 @@ public class DocumentService {
         Path storedFilePath = uploadPath.resolve(document.getStoredFileName()).normalize();
 
         if (!storedFilePath.startsWith(uploadPath) || !Files.exists(storedFilePath)) {
-            throw new IllegalStateException("Document file could not be found.");
+            throw new NotFoundException("Document file could not be found.");
         }
 
         return storedFilePath;
@@ -84,7 +87,9 @@ public class DocumentService {
     @Transactional
     public Document uploadDocument(MultipartFile file, User user, Long companyId) {
         validateUpload(file);
-        Company company = companyId == null ? null : companyService.getCompanyForUser(companyId, user);
+        Company company = companyId == null
+                ? null
+                : companyService.requireCompanyRole(companyId, user, CompanyRole.OWNER, CompanyRole.ADMIN);
 
         String contentType = file.getContentType();
         String originalFileName = cleanOriginalFileName(Objects.requireNonNull(file.getOriginalFilename()));
@@ -93,7 +98,7 @@ public class DocumentService {
         Path storedFilePath = uploadPath.resolve(storedFileName).normalize();
 
         if (!storedFilePath.startsWith(uploadPath)) {
-            throw new IllegalStateException("File upload could not be completed.");
+            throw new BadRequestException("File upload could not be completed.");
         }
 
         try {
@@ -103,7 +108,7 @@ public class DocumentService {
                 Files.copy(inputStream, storedFilePath);
             }
         } catch (IOException exception) {
-            throw new IllegalStateException("File upload could not be completed.");
+            throw new BadRequestException("File upload could not be completed.");
         }
 
         Document document = new Document(
@@ -127,7 +132,7 @@ public class DocumentService {
     @Transactional
     public void deleteDocument(Long id, User user) {
         Document document = documentRepository.findByIdAndOwner(id, user)
-                .orElseThrow(() -> new IllegalStateException(
+                .orElseThrow(() -> new NotFoundException(
                         "document with id " + id + " does not exist"
                 ));
 
@@ -138,9 +143,9 @@ public class DocumentService {
 
     @Transactional
     public void deleteDocument(Long id, Long companyId, User user) {
-        Company company = companyService.getCompanyForUser(companyId, user);
-        Document document = documentRepository.findByIdAndOwnerAndCompany(id, user, company)
-                .orElseThrow(() -> new IllegalStateException(
+        Company company = companyService.requireCompanyRole(companyId, user, CompanyRole.OWNER, CompanyRole.ADMIN);
+        Document document = documentRepository.findByIdAndCompany(id, company)
+                .orElseThrow(() -> new NotFoundException(
                         "document with id " + id + " does not exist"
                 ));
 
@@ -154,31 +159,31 @@ public class DocumentService {
         Path storedFilePath = uploadPath.resolve(document.getStoredFileName()).normalize();
 
         if (!storedFilePath.startsWith(uploadPath)) {
-            throw new IllegalStateException("Document file could not be deleted.");
+            throw new BadRequestException("Document file could not be deleted.");
         }
 
         try {
             Files.deleteIfExists(storedFilePath);
         } catch (IOException exception) {
-            throw new IllegalStateException("Document file could not be deleted.");
+            throw new BadRequestException("Document file could not be deleted.");
         }
     }
 
     private void validateUpload(MultipartFile file) {
         if (file == null || file.isEmpty()) {
-            throw new IllegalStateException("Uploaded file must not be empty.");
+            throw new BadRequestException("Uploaded file must not be empty.");
         }
 
         if (file.getOriginalFilename() == null || file.getOriginalFilename().isBlank()) {
-            throw new IllegalStateException("Uploaded file must have a file name.");
+            throw new BadRequestException("Uploaded file must have a file name.");
         }
 
         if (file.getSize() > MAX_FILE_SIZE_BYTES) {
-            throw new IllegalStateException("Uploaded file must be 10 MB or smaller.");
+            throw new BadRequestException("Uploaded file must be 10 MB or smaller.");
         }
 
         if (!ALLOWED_FILE_TYPES.containsKey(file.getContentType())) {
-            throw new IllegalStateException("Unsupported file type.");
+            throw new BadRequestException("Unsupported file type.");
         }
 
         String originalFileName = cleanOriginalFileName(file.getOriginalFilename());
@@ -186,7 +191,7 @@ public class DocumentService {
         String expectedExtension = ALLOWED_FILE_TYPES.get(file.getContentType());
 
         if (extension != null && !extension.equals(expectedExtension)) {
-            throw new IllegalStateException("Unsupported file type.");
+            throw new BadRequestException("Unsupported file type.");
         }
     }
 
@@ -230,7 +235,7 @@ public class DocumentService {
                 case "application/pdf" -> extractPdfText(storedFilePath);
                 case "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ->
                         extractDocxText(storedFilePath);
-                default -> throw new IllegalStateException("Unsupported file type.");
+                default -> throw new BadRequestException("Unsupported file type.");
             };
 
             document.setExtractedText(extractedText);

@@ -5,6 +5,8 @@ import com.securedoc.securedoc_ai.dto.LoginRequest;
 import com.securedoc.securedoc_ai.dto.RegisterRequest;
 import com.securedoc.securedoc_ai.dto.UserResponse;
 import com.securedoc.securedoc_ai.exception.AuthException;
+import com.securedoc.securedoc_ai.exception.BadRequestException;
+import com.securedoc.securedoc_ai.exception.NotFoundException;
 import com.securedoc.securedoc_ai.model.User;
 import com.securedoc.securedoc_ai.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -29,17 +31,17 @@ public class UserService {
 
     public UserResponse registerUser(RegisterRequest request) {
         if (request.getEmail() == null || request.getEmail().isBlank()) {
-            throw new IllegalStateException(REGISTRATION_FAILED_MESSAGE);
+            throw new BadRequestException(REGISTRATION_FAILED_MESSAGE);
         }
 
         if (request.getPassword() == null || request.getPassword().isBlank()) {
-            throw new IllegalStateException(REGISTRATION_FAILED_MESSAGE);
+            throw new BadRequestException(REGISTRATION_FAILED_MESSAGE);
         }
 
         boolean emailTaken = userRepository.findByEmail(request.getEmail()).isPresent();
 
         if (emailTaken) {
-            throw new IllegalStateException(REGISTRATION_FAILED_MESSAGE);
+            throw new BadRequestException(REGISTRATION_FAILED_MESSAGE);
         }
 
         String hashedPassword = passwordEncoder.encode(request.getPassword());
@@ -95,7 +97,7 @@ public class UserService {
 
     public UserResponse getUser(Long id) {
         User user = userRepository.findById(id)
-                .orElseThrow(() -> new IllegalStateException(
+                .orElseThrow(() -> new NotFoundException(
                         "User request could not be completed."
                 ));
 

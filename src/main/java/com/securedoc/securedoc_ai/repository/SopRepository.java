@@ -15,11 +15,11 @@ public interface SopRepository extends JpaRepository<Sop, Long> {
     List<Sop> findByOwner(User owner);
 
     @EntityGraph(attributePaths = {"sourceDocuments", "sourceChunks", "sourceChunks.documentChunk", "sourceChunks.documentChunk.document", "owner", "company"})
-    List<Sop> findByOwnerAndCompany(User owner, Company company);
+    List<Sop> findByCompany(Company company);
 
     @EntityGraph(attributePaths = {"sourceDocuments", "sourceChunks", "sourceChunks.documentChunk", "sourceChunks.documentChunk.document", "owner"})
     Optional<Sop> findByIdAndOwner(Long id, User owner);
 
     @EntityGraph(attributePaths = {"sourceDocuments", "sourceChunks", "sourceChunks.documentChunk", "sourceChunks.documentChunk.document", "owner", "company"})
-    Optional<Sop> findByIdAndOwnerAndCompany(Long id, User owner, Company company);
+    Optional<Sop> findByIdAndCompany(Long id, Company company);
 }

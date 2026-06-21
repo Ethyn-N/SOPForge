@@ -171,7 +171,7 @@ class SopControllerIntegrationTest {
                                   "sourceDocumentIds": [%d]
                                 }
                                 """.formatted(document.getId())))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value(
                         "document with id " + document.getId() + " does not exist"
                 ));
@@ -298,7 +298,7 @@ class SopControllerIntegrationTest {
                                   "sourceDocumentIds": [%d, %d]
                                 }
                                 """.formatted(ownDocument.getId(), otherUsersDocument.getId())))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value(
                         "document with id " + otherUsersDocument.getId() + " does not exist"
                 ));
@@ -349,7 +349,7 @@ class SopControllerIntegrationTest {
                                   "sourceDocumentIds": [%d]
                                 }
                                 """.formatted(cateringDocument.getId())))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value(
                         "document with id " + cateringDocument.getId() + " does not exist"
                 ));
@@ -392,7 +392,7 @@ class SopControllerIntegrationTest {
         Company restaurantCompany = createCompanyFor(userOne, "Restaurant Group");
         Company cateringCompany = createCompanyFor(userOne, "Catering Group");
         uploadCompanyTextDocument(restaurantCompany, "server.txt", "Server opening steps", userOneToken);
-        saveFailedExtractionDocument(restaurantCompany, userOne, "broken.pdf");
+        saveFailedExtractionDocument(restaurantCompany, userOne);
         uploadCompanyTextDocument(cateringCompany, "cook.txt", "Cook prep steps", userOneToken);
         Document restaurantDocument = findDocumentByOriginalFileName(userOne, "server.txt");
 
@@ -404,6 +404,91 @@ class SopControllerIntegrationTest {
                 .andExpect(jsonPath("$[0].originalFileName").value("server.txt"))
                 .andExpect(jsonPath("$[0].companyId").value(restaurantCompany.getId()))
                 .andExpect(jsonPath("$[0].extractionStatus").value("SUCCESS"));
+    }
+
+    @Test
+    void ownerCanAddAndListCompanyMembers() throws Exception {
+        Company company = createCompanyFor(userOne, "Restaurant Group");
+
+        mockMvc.perform(post("/api/companies/{companyId}/members", company.getId())
+                        .header("Authorization", bearer(userOneToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "email": "%s",
+                                  "role": "REVIEWER"
+                                }
+                                """.formatted(userTwo.getEmail())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.companyId").value(company.getId()))
+                .andExpect(jsonPath("$.userId").value(userTwo.getId()))
+                .andExpect(jsonPath("$.email").value(userTwo.getEmail()))
+                .andExpect(jsonPath("$.role").value("REVIEWER"));
+
+        mockMvc.perform(get("/api/companies/{companyId}/members", company.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(2)))
+                .andExpect(jsonPath("$[0].email").value(userOne.getEmail()))
+                .andExpect(jsonPath("$[0].role").value("OWNER"))
+                .andExpect(jsonPath("$[1].email").value(userTwo.getEmail()))
+                .andExpect(jsonPath("$[1].role").value("REVIEWER"));
+    }
+
+    @Test
+    void regularMemberCannotUploadCompanyDocument() throws Exception {
+        Company company = createCompanyFor(userOne, "Restaurant Group");
+        addCompanyMember(company, userTwo, CompanyRole.MEMBER);
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "member-upload.txt",
+                MediaType.TEXT_PLAIN_VALUE,
+                "Member upload".getBytes()
+        );
+
+        mockMvc.perform(multipart("/api/companies/{companyId}/documents", company.getId())
+                        .file(file)
+                        .header("Authorization", bearer(userTwoToken)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("You do not have permission to perform this company action."));
+
+        assertEquals(0, documentRepository.findByCompany(company).size());
+    }
+
+    @Test
+    void reviewerCanSubmitAndRejectCompanySopButCannotApprove() throws Exception {
+        Company company = createCompanyFor(userOne, "Restaurant Group");
+        addCompanyMember(company, userTwo, CompanyRole.REVIEWER);
+        uploadCompanyTextDocument(company, "server.txt", "Server opening steps", userOneToken);
+        Document document = findDocumentByOriginalFileName(userOne, "server.txt");
+
+        mockMvc.perform(post("/api/companies/{companyId}/sops/generate", company.getId())
+                        .header("Authorization", bearer(userOneToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Reviewable SOP",
+                                  "sourceDocumentIds": [%d]
+                                }
+                                """.formatted(document.getId())))
+                .andExpect(status().isOk());
+
+        Sop sop = sopRepository.findByCompany(company).getFirst();
+
+        mockMvc.perform(post("/api/companies/{companyId}/sops/{id}/submit", company.getId(), sop.getId())
+                        .header("Authorization", bearer(userTwoToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING_REVIEW"));
+
+        mockMvc.perform(post("/api/companies/{companyId}/sops/{id}/approve", company.getId(), sop.getId())
+                        .header("Authorization", bearer(userTwoToken)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("You do not have permission to perform this company action."));
+
+        mockMvc.perform(post("/api/companies/{companyId}/sops/{id}/reject", company.getId(), sop.getId())
+                        .header("Authorization", bearer(userTwoToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REJECTED"));
     }
 
     @Test
@@ -463,7 +548,7 @@ class SopControllerIntegrationTest {
                                   "sourceDocumentIds": [%d, %d]
                                 }
                                 """.formatted(ownDocument.getId(), otherUsersDocument.getId())))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value(
                         "document with id " + otherUsersDocument.getId() + " does not exist"
                 ));
@@ -509,7 +594,7 @@ class SopControllerIntegrationTest {
 
         mockMvc.perform(get("/api/sops/{id}/source-chunks", otherUsersSop.getId())
                         .header("Authorization", bearer(userOneToken)))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value(
                         "sop with id " + otherUsersSop.getId() + " does not exist"
                 ));
@@ -557,7 +642,7 @@ class SopControllerIntegrationTest {
 
         mockMvc.perform(get("/api/sops/{id}", otherUsersSop.getId())
                         .header("Authorization", bearer(userOneToken)))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value(
                         "sop with id " + otherUsersSop.getId() + " does not exist"
                 ));
@@ -622,7 +707,7 @@ class SopControllerIntegrationTest {
                                   "title": "Unauthorized Update"
                                 }
                                 """))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value(
                         "sop with id " + otherUsersSop.getId() + " does not exist"
                 ));
@@ -649,7 +734,7 @@ class SopControllerIntegrationTest {
 
         mockMvc.perform(delete("/api/sops/{id}", otherUsersSop.getId())
                         .header("Authorization", bearer(userOneToken)))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value(
                         "sop with id " + otherUsersSop.getId() + " does not exist"
                 ));
@@ -677,7 +762,7 @@ class SopControllerIntegrationTest {
 
         mockMvc.perform(post("/api/sops/{id}/submit", otherUsersSop.getId())
                         .header("Authorization", bearer(userOneToken)))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value(
                         "sop with id " + otherUsersSop.getId() + " does not exist"
                 ));
@@ -819,7 +904,7 @@ class SopControllerIntegrationTest {
 
         mockMvc.perform(get("/api/sops/{id}/versions", otherUsersSop.getId())
                         .header("Authorization", bearer(userOneToken)))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value(
                         "sop with id " + otherUsersSop.getId() + " does not exist"
                 ));
@@ -853,20 +938,20 @@ class SopControllerIntegrationTest {
         return documentRepository.save(document);
     }
 
-    private Document saveFailedExtractionDocument(Company company, User owner, String fileName) {
+    private void saveFailedExtractionDocument(Company company, User owner) {
         Document document = new Document(
-                fileName,
-                "stored-" + fileName,
+                "broken.pdf",
+                "stored-" + "broken.pdf",
                 "application/pdf",
                 100L,
-                "/uploads/stored-" + fileName
+                "/uploads/stored-" + "broken.pdf"
         );
         document.setOwner(owner);
         document.setCompany(company);
         document.setExtractionStatus(ExtractionStatus.FAILED);
         document.setExtractionError("Could not parse PDF.");
 
-        return documentRepository.save(document);
+        documentRepository.save(document);
     }
 
     private Document findDocumentByOriginalFileName(User owner, String originalFileName) {
@@ -881,6 +966,10 @@ class SopControllerIntegrationTest {
         Company company = companyRepository.save(new Company(name));
         companyMemberRepository.save(new CompanyMember(company, user, CompanyRole.OWNER));
         return company;
+    }
+
+    private void addCompanyMember(Company company, User user, CompanyRole role) {
+        companyMemberRepository.save(new CompanyMember(company, user, role));
     }
 
     private void uploadCompanyTextDocument(

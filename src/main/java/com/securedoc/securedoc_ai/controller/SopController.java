@@ -149,12 +149,33 @@ public class SopController {
         return new SopResponse(sop);
     }
 
+    @PatchMapping("/companies/{companyId}/sops/{id}")
+    public SopResponse updateCompanySop(
+            @PathVariable Long companyId,
+            @PathVariable Long id,
+            @RequestBody SopUpdateRequest request,
+            @AuthenticationPrincipal User user
+    ) {
+        Sop sop = sopService.updateSop(id, companyId, request, user);
+        return new SopResponse(sop);
+    }
+
     @DeleteMapping("/sops/{id}")
     public ResponseEntity<Void> deleteSop(
             @PathVariable Long id,
             @AuthenticationPrincipal User user
     ) {
         sopService.deleteSop(id, user);
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/companies/{companyId}/sops/{id}")
+    public ResponseEntity<Void> deleteCompanySop(
+            @PathVariable Long companyId,
+            @PathVariable Long id,
+            @AuthenticationPrincipal User user
+    ) {
+        sopService.deleteSop(id, companyId, user);
         return ResponseEntity.noContent().build();
     }
 
@@ -167,12 +188,32 @@ public class SopController {
         return new SopResponse(sop);
     }
 
+    @PostMapping("/companies/{companyId}/sops/{id}/submit")
+    public SopResponse submitCompanySopForReview(
+            @PathVariable Long companyId,
+            @PathVariable Long id,
+            @AuthenticationPrincipal User user
+    ) {
+        Sop sop = sopService.submitSopForReview(id, companyId, user);
+        return new SopResponse(sop);
+    }
+
     @PostMapping("/sops/{id}/approve")
     public SopResponse approveSop(
             @PathVariable Long id,
             @AuthenticationPrincipal User user
     ) {
         Sop sop = sopService.approveSop(id, user);
+        return new SopResponse(sop);
+    }
+
+    @PostMapping("/companies/{companyId}/sops/{id}/approve")
+    public SopResponse approveCompanySop(
+            @PathVariable Long companyId,
+            @PathVariable Long id,
+            @AuthenticationPrincipal User user
+    ) {
+        Sop sop = sopService.approveSop(id, companyId, user);
         return new SopResponse(sop);
     }
 
@@ -185,12 +226,32 @@ public class SopController {
         return new SopResponse(sop);
     }
 
+    @PostMapping("/companies/{companyId}/sops/{id}/reject")
+    public SopResponse rejectCompanySop(
+            @PathVariable Long companyId,
+            @PathVariable Long id,
+            @AuthenticationPrincipal User user
+    ) {
+        Sop sop = sopService.rejectSop(id, companyId, user);
+        return new SopResponse(sop);
+    }
+
     @PostMapping("/sops/{id}/archive")
     public SopResponse archiveSop(
             @PathVariable Long id,
             @AuthenticationPrincipal User user
     ) {
         Sop sop = sopService.archiveSop(id, user);
+        return new SopResponse(sop);
+    }
+
+    @PostMapping("/companies/{companyId}/sops/{id}/archive")
+    public SopResponse archiveCompanySop(
+            @PathVariable Long companyId,
+            @PathVariable Long id,
+            @AuthenticationPrincipal User user
+    ) {
+        Sop sop = sopService.archiveSop(id, companyId, user);
         return new SopResponse(sop);
     }
 }
