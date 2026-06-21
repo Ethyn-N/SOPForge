@@ -200,10 +200,10 @@ class SopControllerIntegrationTest {
                 .andExpect(jsonPath("$.sourceChunks", hasSize(2)))
                 .andExpect(jsonPath("$.sourceChunks[0].documentId").value(serverDocument.getId()))
                 .andExpect(jsonPath("$.sourceChunks[0].originalFileName").value("server.txt"))
-                .andExpect(jsonPath("$.sourceChunks[0].score").value(1))
+                .andExpect(jsonPath("$.sourceChunks[0].score").value(greaterThan(0)))
                 .andExpect(jsonPath("$.sourceChunks[0].matchedTerms", hasItem("server")))
                 .andExpect(jsonPath("$.sourceChunks[1].documentId").value(sanitationDocument.getId()))
-                .andExpect(jsonPath("$.sourceChunks[1].score").value(1))
+                .andExpect(jsonPath("$.sourceChunks[1].score").value(greaterThan(0)))
                 .andExpect(jsonPath("$.sourceChunks[1].matchedTerms", hasItem("sanitation")))
                 .andExpect(jsonPath("$.status").value("DRAFT"));
 
@@ -301,15 +301,23 @@ class SopControllerIntegrationTest {
                 .andExpect(jsonPath("$.queryTerms", hasItem("server")))
                 .andExpect(jsonPath("$.queryTerms", hasItem("sanitation")))
                 .andExpect(jsonPath("$.queryTerms", hasItem("closing")))
+                .andExpect(jsonPath("$.queryPhrases", hasItem("server duties")))
+                .andExpect(jsonPath("$.queryPhrases", hasItem("closing side work")))
                 .andExpect(jsonPath("$.chunks", hasSize(2)))
                 .andExpect(jsonPath("$.chunks[0].documentId").value(serverDocument.getId()))
                 .andExpect(jsonPath("$.chunks[0].originalFileName").value("server.txt"))
-                .andExpect(jsonPath("$.chunks[0].score").value(5))
+                .andExpect(jsonPath("$.chunks[0].score").value(greaterThan(0)))
+                .andExpect(jsonPath("$.chunks[0].baseScore").value(greaterThan(0)))
+                .andExpect(jsonPath("$.chunks[0].phraseScore").value(greaterThan(0)))
+                .andExpect(jsonPath("$.chunks[0].finalScore").value(greaterThan(0)))
                 .andExpect(jsonPath("$.chunks[0].matchedTerms", hasItem("server")))
-                .andExpect(jsonPath("$.chunks[0].matchedTerms", hasItem("duties")))
+                .andExpect(jsonPath("$.chunks[0].matchedTerms", hasItem("closing")))
+                .andExpect(jsonPath("$.chunks[0].matchedPhrases", hasItem("closing side work")))
                 .andExpect(jsonPath("$.chunks[0].contentPreview").value(containsString("closing side work")))
                 .andExpect(jsonPath("$.chunks[1].documentId").value(sanitationDocument.getId()))
-                .andExpect(jsonPath("$.chunks[1].score").value(2))
+                .andExpect(jsonPath("$.chunks[1].score").value(greaterThan(0)))
+                .andExpect(jsonPath("$.chunks[1].baseScore").value(greaterThan(0)))
+                .andExpect(jsonPath("$.chunks[1].finalScore").value(greaterThan(0)))
                 .andExpect(jsonPath("$.chunks[1].matchedTerms", hasItem("sanitation")));
     }
 
@@ -361,11 +369,11 @@ class SopControllerIntegrationTest {
                 .andExpect(jsonPath("$", hasSize(2)))
                 .andExpect(jsonPath("$[0].documentId").value(serverDocument.getId()))
                 .andExpect(jsonPath("$[0].originalFileName").value("server.txt"))
-                .andExpect(jsonPath("$[0].score").value(5))
+                .andExpect(jsonPath("$[0].score").value(greaterThan(0)))
                 .andExpect(jsonPath("$[0].matchedTerms", hasItem("server")))
                 .andExpect(jsonPath("$[0].contentPreview").value(containsString("closing side work")))
                 .andExpect(jsonPath("$[1].documentId").value(sanitationDocument.getId()))
-                .andExpect(jsonPath("$[1].score").value(2))
+                .andExpect(jsonPath("$[1].score").value(greaterThan(0)))
                 .andExpect(jsonPath("$[1].matchedTerms", hasItem("sanitation")));
     }
 

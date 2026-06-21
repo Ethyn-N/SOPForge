@@ -85,6 +85,7 @@ public class SopService {
 
         return new RelevancePreviewResponse(
                 relevancePreview.queryTerms(),
+                relevancePreview.queryPhrases(),
                 relevancePreview.chunks()
                         .stream()
                         .map(this::toRelevanceChunkResponse)
@@ -164,7 +165,11 @@ public class SopService {
                 relevanceChunk.chunk().getId(),
                 relevanceChunk.chunk().getChunkIndex(),
                 relevanceChunk.score(),
+                relevanceChunk.baseScore(),
+                relevanceChunk.phraseScore(),
+                relevanceChunk.score(),
                 relevanceChunk.matchedTerms(),
+                relevanceChunk.matchedPhrases(),
                 preview(relevanceChunk.chunk().getContent())
         );
     }

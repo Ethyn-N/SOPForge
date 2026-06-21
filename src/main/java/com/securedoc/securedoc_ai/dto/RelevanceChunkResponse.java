@@ -8,7 +8,11 @@ public record RelevanceChunkResponse(
         Long chunkId,
         Integer chunkIndex,
         Integer score,
+        Integer baseScore,
+        Integer phraseScore,
+        Integer finalScore,
         List<String> matchedTerms,
+        List<String> matchedPhrases,
         String contentPreview
 ) {
 }

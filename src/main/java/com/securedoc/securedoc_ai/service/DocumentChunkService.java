@@ -10,10 +10,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @RequiredArgsConstructor
 @Service
@@ -57,10 +61,10 @@ public class DocumentChunkService {
             String requestedTitle,
             String instructions
     ) {
-        Set<String> queryTerms = queryTerms(requestedTitle, instructions);
+        QueryContext queryContext = queryContext(requestedTitle, instructions);
 
         return documents.stream()
-                .map(document -> promptDocument(document, relevantText(document, queryTerms)))
+                .map(document -> promptDocument(document, relevantText(document, queryContext)))
                 .toList();
     }
 
@@ -69,13 +73,13 @@ public class DocumentChunkService {
             String requestedTitle,
             String instructions
     ) {
-        Set<String> queryTerms = queryTerms(requestedTitle, instructions);
+        QueryContext queryContext = queryContext(requestedTitle, instructions);
 
         List<RelevanceChunk> relevanceChunks = documents.stream()
-                .flatMap(document -> relevantChunks(document, queryTerms).stream())
+                .flatMap(document -> relevantChunks(document, queryContext).stream())
                 .toList();
 
-        return new RelevancePreview(List.copyOf(queryTerms), relevanceChunks);
+        return new RelevancePreview(queryContext.queryTermValues(), queryContext.phrases(), relevanceChunks);
     }
 
     private Document promptDocument(Document document, String relevantText) {
@@ -94,13 +98,13 @@ public class DocumentChunkService {
         return promptDocument;
     }
 
-    private String relevantText(Document document, Set<String> queryTerms) {
-        return joinChunks(relevantChunks(document, queryTerms).stream()
+    private String relevantText(Document document, QueryContext queryContext) {
+        return joinChunks(relevantChunks(document, queryContext).stream()
                 .map(RelevanceChunk::chunk)
                 .toList());
     }
 
-    private List<RelevanceChunk> relevantChunks(Document document, Set<String> queryTerms) {
+    private List<RelevanceChunk> relevantChunks(Document document, QueryContext queryContext) {
         List<DocumentChunk> chunks = getChunks(document);
 
         if (chunks.isEmpty()) {
@@ -108,21 +112,25 @@ public class DocumentChunkService {
                     document,
                     new DocumentChunk(document, 0, document.getExtractedText()),
                     0,
+                    0,
+                    0,
+                    List.of(),
                     List.of()
             ));
         }
 
-        if (queryTerms.isEmpty()) {
+        if (queryContext.isEmpty()) {
             return chunks.stream()
                     .limit(MAX_CHUNKS_FOR_AI)
-                    .map(chunk -> new RelevanceChunk(document, chunk, 0, List.of()))
+                    .map(chunk -> new RelevanceChunk(document, chunk, 0, 0, 0, List.of(), List.of()))
                     .toList();
         }
 
         List<RelevanceChunk> scoredChunks = chunks.stream()
-                .map(chunk -> new RelevanceChunk(document, chunk, matchedTerms(chunk, queryTerms)))
+                .map(chunk -> scoreChunk(document, chunk, queryContext))
                 .filter(scoredChunk -> scoredChunk.score() > 0)
                 .sorted(Comparator.comparingInt(RelevanceChunk::score).reversed()
+                        .thenComparing(Comparator.comparingInt(RelevanceChunk::phraseScore).reversed())
                         .thenComparing(scoredChunk -> scoredChunk.chunk().getChunkIndex()))
                 .limit(MAX_CHUNKS_FOR_AI)
                 .sorted(Comparator.comparing(scoredChunk -> scoredChunk.chunk().getChunkIndex()))
@@ -131,49 +139,133 @@ public class DocumentChunkService {
         if (scoredChunks.isEmpty()) {
             return chunks.stream()
                     .limit(MAX_CHUNKS_FOR_AI)
-                    .map(chunk -> new RelevanceChunk(document, chunk, 0, List.of()))
+                    .map(chunk -> new RelevanceChunk(document, chunk, 0, 0, 0, List.of(), List.of()))
                     .toList();
         }
 
         return scoredChunks;
     }
 
-    private List<String> matchedTerms(DocumentChunk chunk, Set<String> queryTerms) {
-        String content = chunk.getContent().toLowerCase(Locale.ROOT);
+    private RelevanceChunk scoreChunk(Document document, DocumentChunk chunk, QueryContext queryContext) {
+        String content = normalize(chunk.getContent());
         List<String> matchedTerms = new ArrayList<>();
+        List<String> matchedPhrases = new ArrayList<>();
+        int baseScore = 0;
 
-        for (String queryTerm : queryTerms) {
-            if (content.contains(queryTerm)) {
-                matchedTerms.add(queryTerm);
+        for (QueryTerm queryTerm : queryContext.terms()) {
+            int occurrences = occurrenceCount(content, queryTerm.value());
+            if (occurrences > 0) {
+                matchedTerms.add(queryTerm.value());
+                baseScore += queryTerm.weight() * Math.min(occurrences, 3);
             }
         }
 
-        return matchedTerms;
+        for (String phrase : queryContext.phrases()) {
+            int occurrences = occurrenceCount(content, phrase);
+            if (occurrences > 0) {
+                matchedPhrases.add(phrase);
+            }
+        }
+
+        int phraseScore = matchedPhrases.size() * 5;
+
+        return new RelevanceChunk(
+                document,
+                chunk,
+                baseScore + phraseScore,
+                baseScore,
+                phraseScore,
+                matchedTerms,
+                matchedPhrases
+        );
     }
 
-    private Set<String> queryTerms(String requestedTitle, String instructions) {
-        Set<String> terms = new LinkedHashSet<>();
-        addQueryTerms(terms, requestedTitle);
-        addQueryTerms(terms, instructions);
-        return terms;
+    private QueryContext queryContext(String requestedTitle, String instructions) {
+        Map<String, Integer> weightedTerms = new LinkedHashMap<>();
+        addQueryTerms(weightedTerms, requestedTitle, 1);
+        addQueryTerms(weightedTerms, instructions, 3);
+
+        List<QueryTerm> queryTerms = weightedTerms.entrySet()
+                .stream()
+                .map(entry -> new QueryTerm(entry.getKey(), entry.getValue()))
+                .toList();
+
+        return new QueryContext(queryTerms, queryPhrases(instructions));
     }
 
-    private void addQueryTerms(Set<String> terms, String value) {
+    private void addQueryTerms(Map<String, Integer> terms, String value, int weight) {
         if (isBlank(value)) {
             return;
         }
 
         for (String token : value.toLowerCase(Locale.ROOT).split("[^a-z0-9]+")) {
             if (token.length() >= 4 && !isStopWord(token)) {
-                terms.add(token);
+                terms.merge(token, weight, Math::max);
             }
         }
+    }
+
+    private List<String> queryPhrases(String instructions) {
+        List<String> phraseTokens = phraseTokens(instructions);
+        Set<String> phrases = new LinkedHashSet<>();
+
+        for (int phraseLength = 2; phraseLength <= 3; phraseLength++) {
+            for (int index = 0; index <= phraseTokens.size() - phraseLength; index++) {
+                phrases.add(String.join(" ", phraseTokens.subList(index, index + phraseLength)));
+            }
+        }
+
+        return List.copyOf(phrases);
+    }
+
+    private List<String> phraseTokens(String value) {
+        if (isBlank(value)) {
+            return List.of();
+        }
+
+        List<String> tokens = new ArrayList<>();
+
+        for (String token : value.toLowerCase(Locale.ROOT).split("[^a-z0-9]+")) {
+            if (token.length() >= 3 && !isPhraseStopWord(token)) {
+                tokens.add(token);
+            }
+        }
+
+        return tokens;
+    }
+
+    private int occurrenceCount(String content, String query) {
+        Matcher matcher = Pattern.compile("\\b" + Pattern.quote(query) + "\\b").matcher(content);
+        int count = 0;
+
+        while (matcher.find()) {
+            count++;
+        }
+
+        return count;
+    }
+
+    private String normalize(String value) {
+        if (value == null) {
+            return "";
+        }
+
+        return value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", " ");
     }
 
     private boolean isStopWord(String token) {
         return Set.of(
                 "with", "from", "that", "this", "into", "focus", "document", "documents",
-                "standard", "operating", "procedure"
+                "standard", "operating", "procedure", "restaurant", "service", "business",
+                "policy", "policies", "guideline", "guidelines", "responsibility",
+                "responsibilities", "duties", "work"
+        ).contains(token);
+    }
+
+    private boolean isPhraseStopWord(String token) {
+        return Set.of(
+                "and", "the", "for", "with", "from", "that", "this", "into", "focus",
+                "document", "documents", "standard", "operating", "procedure"
         ).contains(token);
     }
 
@@ -216,18 +308,33 @@ public class DocumentChunkService {
         return value == null || value.isBlank();
     }
 
-    public record RelevancePreview(List<String> queryTerms, List<RelevanceChunk> chunks) {
+    private record QueryContext(List<QueryTerm> terms, List<String> phrases) {
+
+        private boolean isEmpty() {
+            return terms.isEmpty() && phrases.isEmpty();
+        }
+
+        private List<String> queryTermValues() {
+            return terms.stream()
+                    .map(QueryTerm::value)
+                    .toList();
+        }
+    }
+
+    private record QueryTerm(String value, int weight) {
+    }
+
+    public record RelevancePreview(List<String> queryTerms, List<String> queryPhrases, List<RelevanceChunk> chunks) {
     }
 
     public record RelevanceChunk(
             Document document,
             DocumentChunk chunk,
             int score,
-            List<String> matchedTerms
+            int baseScore,
+            int phraseScore,
+            List<String> matchedTerms,
+            List<String> matchedPhrases
     ) {
-
-        RelevanceChunk(Document document, DocumentChunk chunk, List<String> matchedTerms) {
-            this(document, chunk, matchedTerms.size(), matchedTerms);
-        }
     }
 }
