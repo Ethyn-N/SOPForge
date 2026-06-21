@@ -1,5 +1,6 @@
 package com.securedoc.securedoc_ai.controller;
 
+import com.securedoc.securedoc_ai.dto.DocumentResponse;
 import com.securedoc.securedoc_ai.dto.RelevancePreviewResponse;
 import com.securedoc.securedoc_ai.dto.SopGenerateRequest;
 import com.securedoc.securedoc_ai.dto.SopResponse;
@@ -40,6 +41,17 @@ public class SopController {
         return sopService.getSops(companyId, user)
                 .stream()
                 .map(SopResponse::new)
+                .toList();
+    }
+
+    @GetMapping("/companies/{companyId}/sops/generation-documents")
+    public List<DocumentResponse> getCompanySopGenerationDocuments(
+            @PathVariable Long companyId,
+            @AuthenticationPrincipal User user
+    ) {
+        return sopService.getGenerationDocuments(companyId, user)
+                .stream()
+                .map(DocumentResponse::new)
                 .toList();
     }
 

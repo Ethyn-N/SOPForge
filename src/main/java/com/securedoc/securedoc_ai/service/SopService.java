@@ -3,8 +3,8 @@ package com.securedoc.securedoc_ai.service;
 import com.securedoc.securedoc_ai.dto.RelevanceChunkResponse;
 import com.securedoc.securedoc_ai.dto.RelevancePreviewResponse;
 import com.securedoc.securedoc_ai.dto.SopGenerateRequest;
-import com.securedoc.securedoc_ai.dto.SopUpdateRequest;
 import com.securedoc.securedoc_ai.dto.SopSourceChunkResponse;
+import com.securedoc.securedoc_ai.dto.SopUpdateRequest;
 import com.securedoc.securedoc_ai.model.Company;
 import com.securedoc.securedoc_ai.model.Document;
 import com.securedoc.securedoc_ai.model.ExtractionStatus;
@@ -22,6 +22,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
 
 @RequiredArgsConstructor
@@ -80,6 +81,18 @@ public class SopService {
                 .orElseThrow(() -> new IllegalStateException(
                         "version with id " + versionId + " does not exist"
                 ));
+    }
+
+    public List<Document> getGenerationDocuments(Long companyId, User user) {
+        companyService.getCompanyForUser(companyId, user);
+
+        return documentService.getDocuments(companyId, user)
+                .stream()
+                .filter(document -> document.getExtractionStatus() == ExtractionStatus.SUCCESS)
+                .filter(document -> !isBlank(document.getExtractedText()))
+                .sorted(Comparator.comparing(Document::getUploadedAt, Comparator.nullsLast(Comparator.reverseOrder()))
+                        .thenComparing(Document::getId, Comparator.nullsLast(Comparator.reverseOrder())))
+                .toList();
     }
 
     public RelevancePreviewResponse previewRelevance(SopGenerateRequest request, User user) {

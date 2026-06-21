@@ -388,6 +388,25 @@ class SopControllerIntegrationTest {
     }
 
     @Test
+    void companySopGenerationDocumentsOnlyReturnsSuccessfulDocumentsForThatCompany() throws Exception {
+        Company restaurantCompany = createCompanyFor(userOne, "Restaurant Group");
+        Company cateringCompany = createCompanyFor(userOne, "Catering Group");
+        uploadCompanyTextDocument(restaurantCompany, "server.txt", "Server opening steps", userOneToken);
+        saveFailedExtractionDocument(restaurantCompany, userOne, "broken.pdf");
+        uploadCompanyTextDocument(cateringCompany, "cook.txt", "Cook prep steps", userOneToken);
+        Document restaurantDocument = findDocumentByOriginalFileName(userOne, "server.txt");
+
+        mockMvc.perform(get("/api/companies/{companyId}/sops/generation-documents", restaurantCompany.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].id").value(restaurantDocument.getId()))
+                .andExpect(jsonPath("$[0].originalFileName").value("server.txt"))
+                .andExpect(jsonPath("$[0].companyId").value(restaurantCompany.getId()))
+                .andExpect(jsonPath("$[0].extractionStatus").value("SUCCESS"));
+    }
+
+    @Test
     void previewRelevanceReturnsSelectedChunksAndMatchedTerms() throws Exception {
         uploadTextDocument("server.txt", "Server duties include POS payments and closing side work.", userOneToken);
         uploadTextDocument("sanitation.txt", "Sanitation steps include food storage and clean work areas.", userOneToken);
@@ -828,6 +847,22 @@ class SopControllerIntegrationTest {
                 "/uploads/stored-broken.pdf"
         );
         document.setOwner(userOne);
+        document.setExtractionStatus(ExtractionStatus.FAILED);
+        document.setExtractionError("Could not parse PDF.");
+
+        return documentRepository.save(document);
+    }
+
+    private Document saveFailedExtractionDocument(Company company, User owner, String fileName) {
+        Document document = new Document(
+                fileName,
+                "stored-" + fileName,
+                "application/pdf",
+                100L,
+                "/uploads/stored-" + fileName
+        );
+        document.setOwner(owner);
+        document.setCompany(company);
         document.setExtractionStatus(ExtractionStatus.FAILED);
         document.setExtractionError("Could not parse PDF.");
 
