@@ -109,8 +109,14 @@ class SopControllerIntegrationTest {
         uploadTextDocument("policy.txt", "Step one\nStep two", userOneToken);
         Document document = documentRepository.findByOwner(userOne).getFirst();
 
-        mockMvc.perform(post("/api/documents/{id}/sops/generate", document.getId())
-                        .header("Authorization", bearer(userOneToken)))
+        mockMvc.perform(post("/api/sops/generate")
+                        .header("Authorization", bearer(userOneToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "sourceDocumentIds": [%d]
+                                }
+                                """.formatted(document.getId())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").exists())
                 .andExpect(jsonPath("$.title").value("SOP for policy.txt"))
@@ -144,8 +150,14 @@ class SopControllerIntegrationTest {
         uploadTextDocument("private.txt", "Private process", userTwoToken);
         Document document = documentRepository.findByOwner(userTwo).getFirst();
 
-        mockMvc.perform(post("/api/documents/{id}/sops/generate", document.getId())
-                        .header("Authorization", bearer(userOneToken)))
+        mockMvc.perform(post("/api/sops/generate")
+                        .header("Authorization", bearer(userOneToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "sourceDocumentIds": [%d]
+                                }
+                                """.formatted(document.getId())))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value(
                         "document with id " + document.getId() + " does not exist"
@@ -158,12 +170,30 @@ class SopControllerIntegrationTest {
     void generateSopRejectsDocumentWithoutSuccessfulExtraction() throws Exception {
         Document document = saveFailedExtractionDocument();
 
-        mockMvc.perform(post("/api/documents/{id}/sops/generate", document.getId())
-                        .header("Authorization", bearer(userOneToken)))
+        mockMvc.perform(post("/api/sops/generate")
+                        .header("Authorization", bearer(userOneToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "sourceDocumentIds": [%d]
+                                }
+                                """.formatted(document.getId())))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value(
                         "Document text must be successfully extracted before generating an SOP."
                 ));
+
+        assertEquals(0, sopRepository.count());
+    }
+
+    @Test
+    void oldDocumentScopedGenerateEndpointIsRemoved() throws Exception {
+        uploadTextDocument("old-route.txt", "Old route text", userOneToken);
+        Document document = documentRepository.findByOwner(userOne).getFirst();
+
+        mockMvc.perform(post("/api/documents/{id}/sops/generate", document.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isNotFound());
 
         assertEquals(0, sopRepository.count());
     }
@@ -633,8 +663,7 @@ class SopControllerIntegrationTest {
         uploadTextDocument("versioned-policy.txt", "Original text", userOneToken);
         Document document = documentRepository.findByOwner(userOne).getFirst();
 
-        mockMvc.perform(post("/api/documents/{id}/sops/generate", document.getId())
-                        .header("Authorization", bearer(userOneToken)));
+        generateSopForDocument(document, userOneToken);
 
         Sop sop = sopRepository.findByOwner(userOne).getFirst();
 
@@ -672,8 +701,7 @@ class SopControllerIntegrationTest {
         uploadTextDocument("single-version.txt", "Version source", userOneToken);
         Document document = documentRepository.findByOwner(userOne).getFirst();
 
-        mockMvc.perform(post("/api/documents/{id}/sops/generate", document.getId())
-                        .header("Authorization", bearer(userOneToken)));
+        generateSopForDocument(document, userOneToken);
 
         Sop sop = sopRepository.findByOwner(userOne).getFirst();
         Long versionId = sopVersionRepository.findBySopOrderByVersionNumberAsc(sop).getFirst().getId();
@@ -735,6 +763,17 @@ class SopControllerIntegrationTest {
                 .filter(document -> document.getOriginalFileName().equals(originalFileName))
                 .findFirst()
                 .orElseThrow();
+    }
+
+    private void generateSopForDocument(Document document, String token) throws Exception {
+        mockMvc.perform(post("/api/sops/generate")
+                .header("Authorization", bearer(token))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {
+                          "sourceDocumentIds": [%d]
+                        }
+                        """.formatted(document.getId())));
     }
 
     private Sop saveSopFor(User owner, String title) {

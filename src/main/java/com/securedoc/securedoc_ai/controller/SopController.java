@@ -70,15 +70,6 @@ public class SopController {
         return new SopVersionResponse(sopVersion);
     }
 
-    @PostMapping("/documents/{documentId}/sops/generate")
-    public SopResponse generateSop(
-            @PathVariable Long documentId,
-            @AuthenticationPrincipal User user
-    ) {
-        Sop sop = sopService.generateSop(documentId, user);
-        return new SopResponse(sop);
-    }
-
     @PostMapping("/sops/generate")
     public SopResponse generateSopFromDocuments(
             @RequestBody SopGenerateRequest request,

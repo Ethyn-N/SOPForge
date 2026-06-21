@@ -67,10 +67,6 @@ public class SopService {
                 ));
     }
 
-    public Sop generateSop(Long documentId, User user) {
-        return generateSop(new SopGenerateRequest(null, List.of(documentId), null), user);
-    }
-
     public RelevancePreviewResponse previewRelevance(SopGenerateRequest request, User user) {
         if (request == null) {
             throw new IllegalStateException("At least one source document is required.");
