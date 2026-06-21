@@ -899,6 +899,89 @@ class SopControllerIntegrationTest {
     }
 
     @Test
+    void getCompanySopVersionsReturnsSnapshotsForCompanyMember() throws Exception {
+        Company company = createCompanyFor(userOne, "Restaurant Group");
+        addCompanyMember(company, userTwo, CompanyRole.MEMBER);
+        uploadCompanyTextDocument(company, "versioned-company.txt", "Company version text", userOneToken);
+        Document document = findDocumentByOriginalFileName(userOne, "versioned-company.txt");
+
+        mockMvc.perform(post("/api/companies/{companyId}/sops/generate", company.getId())
+                        .header("Authorization", bearer(userOneToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Company Version SOP",
+                                  "sourceDocumentIds": [%d]
+                                }
+                                """.formatted(document.getId())))
+                .andExpect(status().isOk());
+
+        Sop sop = sopRepository.findByCompany(company).getFirst();
+        Long versionId = sopVersionRepository.findBySopOrderByVersionNumberAsc(sop).getFirst().getId();
+
+        mockMvc.perform(get("/api/companies/{companyId}/sops/{id}/versions", company.getId(), sop.getId())
+                        .header("Authorization", bearer(userTwoToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].id").value(versionId))
+                .andExpect(jsonPath("$[0].sopId").value(sop.getId()))
+                .andExpect(jsonPath("$[0].title").value("Company Version SOP"));
+
+        mockMvc.perform(get("/api/companies/{companyId}/sops/{id}/versions/{versionId}",
+                        company.getId(), sop.getId(), versionId)
+                        .header("Authorization", bearer(userTwoToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(versionId))
+                .andExpect(jsonPath("$.sopId").value(sop.getId()))
+                .andExpect(jsonPath("$.changeReason").value("Generated SOP"));
+    }
+
+    @Test
+    void getCompanySopSourceChunksReturnsGenerationEvidenceForCompanyMember() throws Exception {
+        Company company = createCompanyFor(userOne, "Restaurant Group");
+        addCompanyMember(company, userTwo, CompanyRole.MEMBER);
+        uploadCompanyTextDocument(company, "server-source.txt", "Server duties include closing side work.", userOneToken);
+        Document document = findDocumentByOriginalFileName(userOne, "server-source.txt");
+
+        mockMvc.perform(post("/api/companies/{companyId}/sops/generate", company.getId())
+                        .header("Authorization", bearer(userOneToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Company Source SOP",
+                                  "sourceDocumentIds": [%d],
+                                  "instructions": "Focus on server duties."
+                                }
+                                """.formatted(document.getId())))
+                .andExpect(status().isOk());
+
+        Sop sop = sopRepository.findByCompany(company).getFirst();
+
+        mockMvc.perform(get("/api/companies/{companyId}/sops/{id}/source-chunks", company.getId(), sop.getId())
+                        .header("Authorization", bearer(userTwoToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].documentId").value(document.getId()))
+                .andExpect(jsonPath("$[0].originalFileName").value("server-source.txt"))
+                .andExpect(jsonPath("$[0].matchedTerms", hasItem("server")));
+    }
+
+    @Test
+    void companySopVersionsRejectSopFromDifferentCompany() throws Exception {
+        Company restaurantCompany = createCompanyFor(userOne, "Restaurant Group");
+        Company cateringCompany = createCompanyFor(userOne, "Catering Group");
+        Sop cateringSop = saveSopFor(userOne, "Catering SOP", SopStatus.DRAFT, cateringCompany);
+
+        mockMvc.perform(get("/api/companies/{companyId}/sops/{id}/versions",
+                        restaurantCompany.getId(), cateringSop.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value(
+                        "sop with id " + cateringSop.getId() + " does not exist"
+                ));
+    }
+
+    @Test
     void getSopVersionsRejectsOtherUsersSop() throws Exception {
         Sop otherUsersSop = saveSopFor(userTwo, "Other User Version SOP");
 
@@ -1007,6 +1090,10 @@ class SopControllerIntegrationTest {
     }
 
     private Sop saveSopFor(User owner, String title, SopStatus status) {
+        return saveSopFor(owner, title, status, null);
+    }
+
+    private Sop saveSopFor(User owner, String title, SopStatus status, Company company) {
         Document document = new Document(
                 title + ".txt",
                 "stored-" + title + ".txt",
@@ -1015,6 +1102,7 @@ class SopControllerIntegrationTest {
                 "/uploads/stored-" + title + ".txt"
         );
         document.setOwner(owner);
+        document.setCompany(company);
         document.setExtractionStatus(ExtractionStatus.SUCCESS);
         document.setExtractedText("Source text for " + title);
         Document savedDocument = documentRepository.save(document);
@@ -1026,7 +1114,8 @@ class SopControllerIntegrationTest {
                 "1. Test procedure.",
                 "Server",
                 List.of(savedDocument),
-                owner
+                owner,
+                company
         );
         sop.setStatus(status);
 

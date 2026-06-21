@@ -85,12 +85,33 @@ public class SopController {
                 .toList();
     }
 
+    @GetMapping("/companies/{companyId}/sops/{id}/versions")
+    public List<SopVersionResponse> getCompanySopVersions(
+            @PathVariable Long companyId,
+            @PathVariable Long id,
+            @AuthenticationPrincipal User user
+    ) {
+        return sopService.getSopVersions(id, companyId, user)
+                .stream()
+                .map(SopVersionResponse::new)
+                .toList();
+    }
+
     @GetMapping("/sops/{id}/source-chunks")
     public List<SopSourceChunkResponse> getSopSourceChunks(
             @PathVariable Long id,
             @AuthenticationPrincipal User user
     ) {
         return sopService.getSopSourceChunks(id, user);
+    }
+
+    @GetMapping("/companies/{companyId}/sops/{id}/source-chunks")
+    public List<SopSourceChunkResponse> getCompanySopSourceChunks(
+            @PathVariable Long companyId,
+            @PathVariable Long id,
+            @AuthenticationPrincipal User user
+    ) {
+        return sopService.getSopSourceChunks(id, companyId, user);
     }
 
     @GetMapping("/sops/{id}/versions/{versionId}")
@@ -100,6 +121,17 @@ public class SopController {
             @AuthenticationPrincipal User user
     ) {
         SopVersion sopVersion = sopService.getSopVersion(id, versionId, user);
+        return new SopVersionResponse(sopVersion);
+    }
+
+    @GetMapping("/companies/{companyId}/sops/{id}/versions/{versionId}")
+    public SopVersionResponse getCompanySopVersion(
+            @PathVariable Long companyId,
+            @PathVariable Long id,
+            @PathVariable Long versionId,
+            @AuthenticationPrincipal User user
+    ) {
+        SopVersion sopVersion = sopService.getSopVersion(id, versionId, companyId, user);
         return new SopVersionResponse(sopVersion);
     }
 

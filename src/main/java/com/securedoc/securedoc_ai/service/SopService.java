@@ -69,6 +69,11 @@ public class SopService {
         return sopVersionRepository.findBySopOrderByVersionNumberAsc(sop);
     }
 
+    public List<SopVersion> getSopVersions(Long sopId, Long companyId, User user) {
+        Sop sop = getSop(sopId, companyId, user);
+        return sopVersionRepository.findBySopOrderByVersionNumberAsc(sop);
+    }
+
     public List<SopSourceChunkResponse> getSopSourceChunks(Long sopId, User user) {
         Sop sop = getSop(sopId, user);
         return sopSourceChunkRepository.findBySopOrderByDocumentChunkDocumentIdAscDocumentChunkChunkIndexAsc(sop)
@@ -77,8 +82,25 @@ public class SopService {
                 .toList();
     }
 
+    public List<SopSourceChunkResponse> getSopSourceChunks(Long sopId, Long companyId, User user) {
+        Sop sop = getSop(sopId, companyId, user);
+        return sopSourceChunkRepository.findBySopOrderByDocumentChunkDocumentIdAscDocumentChunkChunkIndexAsc(sop)
+                .stream()
+                .map(SopSourceChunkResponse::new)
+                .toList();
+    }
+
     public SopVersion getSopVersion(Long sopId, Long versionId, User user) {
         Sop sop = getSop(sopId, user);
+
+        return sopVersionRepository.findByIdAndSop(versionId, sop)
+                .orElseThrow(() -> new NotFoundException(
+                        "version with id " + versionId + " does not exist"
+                ));
+    }
+
+    public SopVersion getSopVersion(Long sopId, Long versionId, Long companyId, User user) {
+        Sop sop = getSop(sopId, companyId, user);
 
         return sopVersionRepository.findByIdAndSop(versionId, sop)
                 .orElseThrow(() -> new NotFoundException(
