@@ -5,6 +5,7 @@ import com.securedoc.securedoc_ai.dto.RelevancePreviewResponse;
 import com.securedoc.securedoc_ai.dto.SopGenerateRequest;
 import com.securedoc.securedoc_ai.dto.SopUpdateRequest;
 import com.securedoc.securedoc_ai.dto.SopSourceChunkResponse;
+import com.securedoc.securedoc_ai.model.Company;
 import com.securedoc.securedoc_ai.model.Document;
 import com.securedoc.securedoc_ai.model.ExtractionStatus;
 import com.securedoc.securedoc_ai.model.Sop;
@@ -33,13 +34,27 @@ public class SopService {
     private final SopSourceChunkRepository sopSourceChunkRepository;
     private final SopVersionRepository sopVersionRepository;
     private final AiSopGenerator aiSopGenerator;
+    private final CompanyService companyService;
 
     public List<Sop> getSops(User user) {
         return sopRepository.findByOwner(user);
     }
 
+    public List<Sop> getSops(Long companyId, User user) {
+        Company company = companyService.getCompanyForUser(companyId, user);
+        return sopRepository.findByOwnerAndCompany(user, company);
+    }
+
     public Sop getSop(Long id, User user) {
         return sopRepository.findByIdAndOwner(id, user)
+                .orElseThrow(() -> new IllegalStateException(
+                        "sop with id " + id + " does not exist"
+                ));
+    }
+
+    public Sop getSop(Long id, Long companyId, User user) {
+        Company company = companyService.getCompanyForUser(companyId, user);
+        return sopRepository.findByIdAndOwnerAndCompany(id, user, company)
                 .orElseThrow(() -> new IllegalStateException(
                         "sop with id " + id + " does not exist"
                 ));
@@ -68,11 +83,16 @@ public class SopService {
     }
 
     public RelevancePreviewResponse previewRelevance(SopGenerateRequest request, User user) {
+        return previewRelevance(request, user, null);
+    }
+
+    public RelevancePreviewResponse previewRelevance(SopGenerateRequest request, User user, Long companyId) {
         if (request == null) {
             throw new IllegalStateException("At least one source document is required.");
         }
 
-        List<Document> documents = getSourceDocuments(request.sourceDocumentIds(), user);
+        Company company = companyId == null ? null : companyService.getCompanyForUser(companyId, user);
+        List<Document> documents = getSourceDocuments(request.sourceDocumentIds(), user, company);
         DocumentChunkService.RelevancePreview relevancePreview = documentChunkService.buildRelevancePreview(
                 documents,
                 request.title(),
@@ -90,11 +110,16 @@ public class SopService {
     }
 
     public Sop generateSop(SopGenerateRequest request, User user) {
+        return generateSop(request, user, null);
+    }
+
+    public Sop generateSop(SopGenerateRequest request, User user, Long companyId) {
         if (request == null) {
             throw new IllegalStateException("At least one source document is required.");
         }
 
-        List<Document> documents = getSourceDocuments(request.sourceDocumentIds(), user);
+        Company company = companyId == null ? null : companyService.getCompanyForUser(companyId, user);
+        List<Document> documents = getSourceDocuments(request.sourceDocumentIds(), user, company);
 
         for (Document document : documents) {
             if (document.getExtractionStatus() != ExtractionStatus.SUCCESS || isBlank(document.getExtractedText())) {
@@ -128,7 +153,8 @@ public class SopService {
                 requiredGenerated(generatedSopDraft.procedure(), "procedure"),
                 requiredGenerated(generatedSopDraft.roles(), "roles"),
                 documents,
-                user
+                user,
+                company
         );
         sop.setSourceChunks(sourceChunksFor(sop, relevancePreview));
 
@@ -184,15 +210,23 @@ public class SopService {
         return compactContent.substring(0, 300) + "...";
     }
 
-    private List<Document> getSourceDocuments(List<Long> sourceDocumentIds, User user) {
+    private List<Document> getSourceDocuments(List<Long> sourceDocumentIds, User user, Company company) {
         if (sourceDocumentIds == null || sourceDocumentIds.isEmpty()) {
             throw new IllegalStateException("At least one source document is required.");
         }
 
         return sourceDocumentIds.stream()
                 .distinct()
-                .map(documentId -> documentService.getDocument(documentId, user))
+                .map(documentId -> getSourceDocument(documentId, user, company))
                 .toList();
+    }
+
+    private Document getSourceDocument(Long documentId, User user, Company company) {
+        if (company == null) {
+            return documentService.getDocument(documentId, user);
+        }
+
+        return documentService.getDocument(documentId, company.getId(), user);
     }
 
     public Sop updateSop(Long id, SopUpdateRequest request, User user) {

@@ -21,6 +21,8 @@ public class DocumentResponse {
     private final String extractionError;
     private final Long ownerId;
     private final String ownerEmail;
+    private final Long companyId;
+    private final String companyName;
 
     public DocumentResponse(Document document) {
         this.id = document.getId();
@@ -35,5 +37,7 @@ public class DocumentResponse {
         this.extractionError = document.getExtractionError();
         this.ownerId = document.getOwner().getId();
         this.ownerEmail = document.getOwner().getEmail();
+        this.companyId = document.getCompany() == null ? null : document.getCompany().getId();
+        this.companyName = document.getCompany() == null ? null : document.getCompany().getName();
     }
 }

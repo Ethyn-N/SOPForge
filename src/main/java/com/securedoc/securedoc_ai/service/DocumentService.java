@@ -1,6 +1,7 @@
 package com.securedoc.securedoc_ai.service;
 
 import com.securedoc.securedoc_ai.config.StorageProperties;
+import com.securedoc.securedoc_ai.model.Company;
 import com.securedoc.securedoc_ai.model.Document;
 import com.securedoc.securedoc_ai.model.ExtractionStatus;
 import com.securedoc.securedoc_ai.model.User;
@@ -38,13 +39,27 @@ public class DocumentService {
     private final DocumentRepository documentRepository;
     private final StorageProperties storageProperties;
     private final DocumentChunkService documentChunkService;
+    private final CompanyService companyService;
 
     public List<Document> getDocuments(User user) {
         return documentRepository.findByOwner(user);
     }
 
+    public List<Document> getDocuments(Long companyId, User user) {
+        Company company = companyService.getCompanyForUser(companyId, user);
+        return documentRepository.findByOwnerAndCompany(user, company);
+    }
+
     public Document getDocument(Long id, User user) {
         return documentRepository.findByIdAndOwner(id, user)
+                .orElseThrow(() -> new IllegalStateException(
+                        "document with id " + id + " does not exist"
+                ));
+    }
+
+    public Document getDocument(Long id, Long companyId, User user) {
+        Company company = companyService.getCompanyForUser(companyId, user);
+        return documentRepository.findByIdAndOwnerAndCompany(id, user, company)
                 .orElseThrow(() -> new IllegalStateException(
                         "document with id " + id + " does not exist"
                 ));
@@ -63,7 +78,13 @@ public class DocumentService {
 
     @Transactional
     public Document uploadDocument(MultipartFile file, User user) {
+        return uploadDocument(file, user, null);
+    }
+
+    @Transactional
+    public Document uploadDocument(MultipartFile file, User user, Long companyId) {
         validateUpload(file);
+        Company company = companyId == null ? null : companyService.getCompanyForUser(companyId, user);
 
         String contentType = file.getContentType();
         String originalFileName = cleanOriginalFileName(Objects.requireNonNull(file.getOriginalFilename()));
@@ -93,6 +114,7 @@ public class DocumentService {
                 "/uploads/documents/" + storedFileName
         );
         document.setOwner(user);
+        document.setCompany(company);
         document.setUploadedAt(LocalDateTime.now());
         extractText(document, storedFilePath);
 
@@ -105,6 +127,19 @@ public class DocumentService {
     @Transactional
     public void deleteDocument(Long id, User user) {
         Document document = documentRepository.findByIdAndOwner(id, user)
+                .orElseThrow(() -> new IllegalStateException(
+                        "document with id " + id + " does not exist"
+                ));
+
+        deleteStoredFile(document);
+        documentChunkService.deleteChunks(document);
+        documentRepository.delete(document);
+    }
+
+    @Transactional
+    public void deleteDocument(Long id, Long companyId, User user) {
+        Company company = companyService.getCompanyForUser(companyId, user);
+        Document document = documentRepository.findByIdAndOwnerAndCompany(id, user, company)
                 .orElseThrow(() -> new IllegalStateException(
                         "document with id " + id + " does not exist"
                 ));

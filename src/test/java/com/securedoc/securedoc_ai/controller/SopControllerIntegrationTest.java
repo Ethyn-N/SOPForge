@@ -1,11 +1,16 @@
 package com.securedoc.securedoc_ai.controller;
 
 import com.securedoc.securedoc_ai.config.StorageProperties;
+import com.securedoc.securedoc_ai.model.Company;
+import com.securedoc.securedoc_ai.model.CompanyMember;
+import com.securedoc.securedoc_ai.model.CompanyRole;
 import com.securedoc.securedoc_ai.model.Document;
 import com.securedoc.securedoc_ai.model.ExtractionStatus;
 import com.securedoc.securedoc_ai.model.Sop;
 import com.securedoc.securedoc_ai.model.SopStatus;
 import com.securedoc.securedoc_ai.model.User;
+import com.securedoc.securedoc_ai.repository.CompanyMemberRepository;
+import com.securedoc.securedoc_ai.repository.CompanyRepository;
 import com.securedoc.securedoc_ai.repository.DocumentRepository;
 import com.securedoc.securedoc_ai.repository.SopRepository;
 import com.securedoc.securedoc_ai.repository.SopSourceChunkRepository;
@@ -70,6 +75,12 @@ class SopControllerIntegrationTest {
     private DocumentRepository documentRepository;
 
     @Autowired
+    private CompanyRepository companyRepository;
+
+    @Autowired
+    private CompanyMemberRepository companyMemberRepository;
+
+    @Autowired
     private SopRepository sopRepository;
 
     @Autowired
@@ -96,6 +107,8 @@ class SopControllerIntegrationTest {
         sopVersionRepository.deleteAll();
         sopRepository.deleteAll();
         documentRepository.deleteAll();
+        companyMemberRepository.deleteAll();
+        companyRepository.deleteAll();
         userRepository.deleteAll();
 
         userOne = userRepository.save(new User("sop-user-one@example.com", "password"));
@@ -308,6 +321,70 @@ class SopControllerIntegrationTest {
                 .andExpect(jsonPath("$.message").value("At least one source document is required."));
 
         assertEquals(0, sopRepository.count());
+    }
+
+    @Test
+    void companyScopedSopGenerationRejectsDocumentFromDifferentCompany() throws Exception {
+        Company restaurantCompany = createCompanyFor(userOne, "Restaurant Group");
+        Company cateringCompany = createCompanyFor(userOne, "Catering Group");
+        uploadCompanyTextDocument(restaurantCompany, "server.txt", "Server opening steps", userOneToken);
+        uploadCompanyTextDocument(cateringCompany, "cook.txt", "Cook prep steps", userOneToken);
+        Document restaurantDocument = findDocumentByOriginalFileName(userOne, "server.txt");
+        Document cateringDocument = findDocumentByOriginalFileName(userOne, "cook.txt");
+
+        mockMvc.perform(get("/api/companies/{companyId}/documents", restaurantCompany.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].id").value(restaurantDocument.getId()))
+                .andExpect(jsonPath("$[0].companyId").value(restaurantCompany.getId()))
+                .andExpect(jsonPath("$[0].companyName").value("Restaurant Group"));
+
+        mockMvc.perform(post("/api/companies/{companyId}/sops/generate", restaurantCompany.getId())
+                        .header("Authorization", bearer(userOneToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Wrong Company SOP",
+                                  "sourceDocumentIds": [%d]
+                                }
+                                """.formatted(cateringDocument.getId())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(
+                        "document with id " + cateringDocument.getId() + " does not exist"
+                ));
+
+        assertEquals(cateringCompany.getId(), cateringDocument.getCompany().getId());
+        assertEquals(0, sopRepository.count());
+    }
+
+    @Test
+    void companyScopedSopGenerationCreatesSopInsideCompany() throws Exception {
+        Company company = createCompanyFor(userOne, "Restaurant Group");
+        uploadCompanyTextDocument(company, "server.txt", "Server opening steps", userOneToken);
+        Document document = findDocumentByOriginalFileName(userOne, "server.txt");
+
+        mockMvc.perform(post("/api/companies/{companyId}/sops/generate", company.getId())
+                        .header("Authorization", bearer(userOneToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Company Server SOP",
+                                  "sourceDocumentIds": [%d],
+                                  "instructions": "Focus on server opening steps."
+                                }
+                                """.formatted(document.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("Company Server SOP"))
+                .andExpect(jsonPath("$.companyId").value(company.getId()))
+                .andExpect(jsonPath("$.companyName").value("Restaurant Group"))
+                .andExpect(jsonPath("$.sourceDocumentIds[0]").value(document.getId()));
+
+        mockMvc.perform(get("/api/companies/{companyId}/sops", company.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].companyId").value(company.getId()));
     }
 
     @Test
@@ -763,6 +840,31 @@ class SopControllerIntegrationTest {
                 .filter(document -> document.getOriginalFileName().equals(originalFileName))
                 .findFirst()
                 .orElseThrow();
+    }
+
+    private Company createCompanyFor(User user, String name) {
+        Company company = companyRepository.save(new Company(name));
+        companyMemberRepository.save(new CompanyMember(company, user, CompanyRole.OWNER));
+        return company;
+    }
+
+    private void uploadCompanyTextDocument(
+            Company company,
+            String fileName,
+            String content,
+            String token
+    ) throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                fileName,
+                MediaType.TEXT_PLAIN_VALUE,
+                content.getBytes()
+        );
+
+        mockMvc.perform(multipart("/api/companies/{companyId}/documents", company.getId())
+                        .file(file)
+                        .header("Authorization", bearer(token)))
+                .andExpect(status().isOk());
     }
 
     private void generateSopForDocument(Document document, String token) throws Exception {

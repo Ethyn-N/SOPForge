@@ -32,12 +32,33 @@ public class SopController {
                 .toList();
     }
 
+    @GetMapping("/companies/{companyId}/sops")
+    public List<SopResponse> getCompanySops(
+            @PathVariable Long companyId,
+            @AuthenticationPrincipal User user
+    ) {
+        return sopService.getSops(companyId, user)
+                .stream()
+                .map(SopResponse::new)
+                .toList();
+    }
+
     @GetMapping("/sops/{id}")
     public SopResponse getSop(
             @PathVariable Long id,
             @AuthenticationPrincipal User user
     ) {
         Sop sop = sopService.getSop(id, user);
+        return new SopResponse(sop);
+    }
+
+    @GetMapping("/companies/{companyId}/sops/{id}")
+    public SopResponse getCompanySop(
+            @PathVariable Long companyId,
+            @PathVariable Long id,
+            @AuthenticationPrincipal User user
+    ) {
+        Sop sop = sopService.getSop(id, companyId, user);
         return new SopResponse(sop);
     }
 
@@ -79,12 +100,31 @@ public class SopController {
         return new SopResponse(sop);
     }
 
+    @PostMapping("/companies/{companyId}/sops/generate")
+    public SopResponse generateCompanySopFromDocuments(
+            @PathVariable Long companyId,
+            @RequestBody SopGenerateRequest request,
+            @AuthenticationPrincipal User user
+    ) {
+        Sop sop = sopService.generateSop(request, user, companyId);
+        return new SopResponse(sop);
+    }
+
     @PostMapping("/sops/relevance-preview")
     public RelevancePreviewResponse previewRelevance(
             @RequestBody SopGenerateRequest request,
             @AuthenticationPrincipal User user
     ) {
         return sopService.previewRelevance(request, user);
+    }
+
+    @PostMapping("/companies/{companyId}/sops/relevance-preview")
+    public RelevancePreviewResponse previewCompanyRelevance(
+            @PathVariable Long companyId,
+            @RequestBody SopGenerateRequest request,
+            @AuthenticationPrincipal User user
+    ) {
+        return sopService.previewRelevance(request, user, companyId);
     }
 
     @PatchMapping("/sops/{id}")

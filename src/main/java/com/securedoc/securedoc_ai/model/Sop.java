@@ -58,6 +58,11 @@ public class Sop {
     private User owner;
 
     @Setter
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "company_id")
+    private Company company;
+
+    @Setter
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private SopStatus status = SopStatus.DRAFT;
@@ -79,6 +84,19 @@ public class Sop {
             List<Document> sourceDocuments,
             User owner
     ) {
+        this(title, purpose, scope, procedure, roles, sourceDocuments, owner, null);
+    }
+
+    public Sop(
+            String title,
+            String purpose,
+            String scope,
+            String procedure,
+            String roles,
+            List<Document> sourceDocuments,
+            User owner,
+            Company company
+    ) {
         this.title = title;
         this.purpose = purpose;
         this.scope = scope;
@@ -86,6 +104,7 @@ public class Sop {
         this.roles = roles;
         this.sourceDocuments = new ArrayList<>(sourceDocuments);
         this.owner = owner;
+        this.company = company;
         this.status = SopStatus.DRAFT;
         this.createdAt = LocalDateTime.now();
         this.updatedAt = this.createdAt;

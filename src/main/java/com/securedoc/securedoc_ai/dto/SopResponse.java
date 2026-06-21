@@ -26,6 +26,8 @@ public class SopResponse {
     private final List<SopSourceChunkResponse> sourceChunks;
     private final Long ownerId;
     private final String ownerEmail;
+    private final Long companyId;
+    private final String companyName;
     private final LocalDateTime createdAt;
     private final LocalDateTime updatedAt;
 
@@ -60,6 +62,8 @@ public class SopResponse {
                 .toList();
         this.ownerId = sop.getOwner().getId();
         this.ownerEmail = sop.getOwner().getEmail();
+        this.companyId = sop.getCompany() == null ? null : sop.getCompany().getId();
+        this.companyName = sop.getCompany() == null ? null : sop.getCompany().getName();
         this.createdAt = sop.getCreatedAt();
         this.updatedAt = sop.getUpdatedAt();
     }

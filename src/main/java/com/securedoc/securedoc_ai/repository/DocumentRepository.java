@@ -1,6 +1,7 @@
 package com.securedoc.securedoc_ai.repository;
 
 import com.securedoc.securedoc_ai.model.Document;
+import com.securedoc.securedoc_ai.model.Company;
 import com.securedoc.securedoc_ai.model.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -11,5 +12,9 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
 
     List<Document> findByOwner(User owner);
 
+    List<Document> findByOwnerAndCompany(User owner, Company company);
+
     Optional<Document> findByIdAndOwner(Long id, User owner);
+
+    Optional<Document> findByIdAndOwnerAndCompany(Long id, User owner, Company company);
 }

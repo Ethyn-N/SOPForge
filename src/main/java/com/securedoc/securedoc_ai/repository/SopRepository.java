@@ -1,6 +1,7 @@
 package com.securedoc.securedoc_ai.repository;
 
 import com.securedoc.securedoc_ai.model.Sop;
+import com.securedoc.securedoc_ai.model.Company;
 import com.securedoc.securedoc_ai.model.User;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -13,6 +14,12 @@ public interface SopRepository extends JpaRepository<Sop, Long> {
     @EntityGraph(attributePaths = {"sourceDocuments", "sourceChunks", "sourceChunks.documentChunk", "sourceChunks.documentChunk.document", "owner"})
     List<Sop> findByOwner(User owner);
 
+    @EntityGraph(attributePaths = {"sourceDocuments", "sourceChunks", "sourceChunks.documentChunk", "sourceChunks.documentChunk.document", "owner", "company"})
+    List<Sop> findByOwnerAndCompany(User owner, Company company);
+
     @EntityGraph(attributePaths = {"sourceDocuments", "sourceChunks", "sourceChunks.documentChunk", "sourceChunks.documentChunk.document", "owner"})
     Optional<Sop> findByIdAndOwner(Long id, User owner);
+
+    @EntityGraph(attributePaths = {"sourceDocuments", "sourceChunks", "sourceChunks.documentChunk", "sourceChunks.documentChunk.document", "owner", "company"})
+    Optional<Sop> findByIdAndOwnerAndCompany(Long id, User owner, Company company);
 }
