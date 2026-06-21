@@ -2,10 +2,12 @@ package com.securedoc.securedoc_ai.dto;
 
 import com.securedoc.securedoc_ai.model.Document;
 import com.securedoc.securedoc_ai.model.Sop;
+import com.securedoc.securedoc_ai.model.SopSourceChunk;
 import com.securedoc.securedoc_ai.model.SopStatus;
 import lombok.Getter;
 
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
 
 @Getter
@@ -20,6 +22,7 @@ public class SopResponse {
     private final SopStatus status;
     private final List<Long> sourceDocumentIds;
     private final List<String> sourceDocumentOriginalFileNames;
+    private final Integer sourceChunkCount;
     private final List<SopSourceChunkResponse> sourceChunks;
     private final Long ownerId;
     private final String ownerEmail;
@@ -36,14 +39,23 @@ public class SopResponse {
         this.status = sop.getStatus();
         this.sourceDocumentIds = sop.getSourceDocuments()
                 .stream()
+                .distinct()
+                .sorted(Comparator.comparing(Document::getId))
                 .map(Document::getId)
                 .toList();
         this.sourceDocumentOriginalFileNames = sop.getSourceDocuments()
                 .stream()
+                .distinct()
+                .sorted(Comparator.comparing(Document::getId))
                 .map(Document::getOriginalFileName)
                 .toList();
+        this.sourceChunkCount = sop.getSourceChunks().size();
         this.sourceChunks = sop.getSourceChunks()
                 .stream()
+                .sorted(Comparator
+                        .comparing((SopSourceChunk sourceChunk) ->
+                                sourceChunk.getDocumentChunk().getDocument().getId())
+                        .thenComparing(sourceChunk -> sourceChunk.getDocumentChunk().getChunkIndex()))
                 .map(SopSourceChunkResponse::new)
                 .toList();
         this.ownerId = sop.getOwner().getId();

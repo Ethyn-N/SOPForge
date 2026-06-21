@@ -33,6 +33,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -195,6 +196,7 @@ class SopControllerIntegrationTest {
                 .andExpect(jsonPath("$.sourceDocumentIds[1]").value(sanitationDocument.getId()))
                 .andExpect(jsonPath("$.sourceDocumentOriginalFileNames[0]").value("server.txt"))
                 .andExpect(jsonPath("$.sourceDocumentOriginalFileNames[1]").value("sanitation.txt"))
+                .andExpect(jsonPath("$.sourceChunkCount").value(2))
                 .andExpect(jsonPath("$.sourceChunks", hasSize(2)))
                 .andExpect(jsonPath("$.sourceChunks[0].documentId").value(serverDocument.getId()))
                 .andExpect(jsonPath("$.sourceChunks[0].originalFileName").value("server.txt"))
@@ -209,6 +211,32 @@ class SopControllerIntegrationTest {
         assertEquals(1, sopRepository.count());
         assertEquals(1, sopVersionRepository.countBySop(savedSop));
         assertEquals(2, sopSourceChunkRepository.findBySopOrderByDocumentChunkDocumentIdAscDocumentChunkChunkIndexAsc(savedSop).size());
+    }
+
+    @Test
+    void generateSopDoesNotRepeatSourceDocumentsWhenManyChunksAreSelected() throws Exception {
+        uploadTextDocument("server.txt", repeatedText("Server duties include closing side work. "), userOneToken);
+        uploadTextDocument("sanitation.txt", repeatedText("Sanitation work includes clean storage. "), userOneToken);
+        Document serverDocument = findDocumentByOriginalFileName(userOne, "server.txt");
+        Document sanitationDocument = findDocumentByOriginalFileName(userOne, "sanitation.txt");
+
+        mockMvc.perform(post("/api/sops/generate")
+                        .header("Authorization", bearer(userOneToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Restaurant Service SOP",
+                                  "sourceDocumentIds": [%d, %d],
+                                  "instructions": "Focus on server duties, sanitation, and closing side work."
+                                }
+                                """.formatted(serverDocument.getId(), sanitationDocument.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sourceDocumentIds", hasSize(2)))
+                .andExpect(jsonPath("$.sourceDocumentIds[0]").value(serverDocument.getId()))
+                .andExpect(jsonPath("$.sourceDocumentIds[1]").value(sanitationDocument.getId()))
+                .andExpect(jsonPath("$.sourceDocumentOriginalFileNames", hasSize(2)))
+                .andExpect(jsonPath("$.sourceChunkCount").value(greaterThan(2)))
+                .andExpect(jsonPath("$.sourceChunks", hasSize(greaterThan(2))));
     }
 
     @Test
@@ -366,6 +394,7 @@ class SopControllerIntegrationTest {
                 .andExpect(jsonPath("$[0].title").value("User One SOP"))
                 .andExpect(jsonPath("$[0].ownerId").value(userOne.getId()))
                 .andExpect(jsonPath("$[0].ownerEmail").value(userOne.getEmail()))
+                .andExpect(jsonPath("$[0].sourceChunkCount").value(0))
                 .andExpect(jsonPath("$[0].status").value("DRAFT"));
     }
 
@@ -384,6 +413,7 @@ class SopControllerIntegrationTest {
                 .andExpect(jsonPath("$.roles").value("Server"))
                 .andExpect(jsonPath("$.status").value("DRAFT"))
                 .andExpect(jsonPath("$.sourceDocumentIds[0]").value(ownSop.getSourceDocuments().getFirst().getId()))
+                .andExpect(jsonPath("$.sourceChunkCount").value(0))
                 .andExpect(jsonPath("$.ownerId").value(userOne.getId()));
     }
 
@@ -728,6 +758,10 @@ class SopControllerIntegrationTest {
         sop.setStatus(status);
 
         return sopRepository.save(sop);
+    }
+
+    private String repeatedText(String text) {
+        return text.repeat(120);
     }
 
     private String bearer(String token) {
