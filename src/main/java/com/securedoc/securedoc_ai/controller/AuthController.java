@@ -1,6 +1,8 @@
 package com.securedoc.securedoc_ai.controller;
 
 import com.securedoc.securedoc_ai.dto.AuthResponse;
+import com.securedoc.securedoc_ai.dto.EmailCheckRequest;
+import com.securedoc.securedoc_ai.dto.EmailCheckResponse;
 import com.securedoc.securedoc_ai.dto.LoginRequest;
 import com.securedoc.securedoc_ai.dto.RegisterRequest;
 import com.securedoc.securedoc_ai.dto.UserResponse;
@@ -18,6 +20,11 @@ public class AuthController {
     @PostMapping("/register")
     public UserResponse registerUser(@RequestBody RegisterRequest request) {
         return userService.registerUser(request);
+    }
+
+    @PostMapping("/email-check")
+    public EmailCheckResponse checkEmail(@RequestBody EmailCheckRequest request) {
+        return userService.checkEmail(request);
     }
 
     @PostMapping("/login")

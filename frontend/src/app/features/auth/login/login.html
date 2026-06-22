@@ -1,0 +1,131 @@
+<main class="auth-page">
+  <section class="auth-panel">
+    <div class="brand">
+      <span class="brand-mark">S</span>
+      <div>
+        <p>SOPForge</p>
+        <h1>Sign in</h1>
+      </div>
+    </div>
+
+    <div class="alert-slot" [class.empty]="!errorMessage()">
+      <div class="problem-alert" role="alert" [attr.aria-hidden]="!errorMessage()">
+        <i class="pi pi-exclamation-circle" aria-hidden="true"></i>
+        <div>
+          <strong>There was a problem</strong>
+          <p>{{ errorMessage() || 'No error.' }}</p>
+        </div>
+      </div>
+    </div>
+
+    <p-card>
+      @if (step() === 'email') {
+        <form [formGroup]="form" (ngSubmit)="submitEmail()" class="auth-form">
+          <h2>Sign in or create account</h2>
+
+          <label for="email">Email</label>
+          <input
+            pInputText
+            id="email"
+            type="email"
+            formControlName="email"
+            autocomplete="email"
+            [invalid]="!!submittedEmailError()"
+          />
+
+          @if (submittedEmailError()) {
+            <p class="field-error">
+              <i class="pi pi-exclamation-circle" aria-hidden="true"></i>
+              <span>{{ submittedEmailError() }}</span>
+            </p>
+          }
+
+          <button
+            pButton
+            type="submit"
+            label="Continue"
+            icon="pi pi-arrow-right"
+            iconPos="right"
+            [loading]="isSubmitting()"
+            [disabled]="isSubmitting()"
+          ></button>
+        </form>
+      }
+
+      @if (step() === 'password') {
+        <form [formGroup]="form" (ngSubmit)="submitPassword()" class="auth-form">
+          <h2>Sign in</h2>
+
+          <p class="chosen-email">
+            <strong>{{ checkedEmail() }}</strong>
+            <a href="" class="auth-link" (click)="$event.preventDefault(); changeEmail()">Change</a>
+          </p>
+
+          <label for="password">Password</label>
+          <p-password
+            inputId="password"
+            formControlName="password"
+            [feedback]="false"
+            [toggleMask]="true"
+            autocomplete="current-password"
+            styleClass="full-width-password"
+            [invalid]="!!submittedPasswordError()"
+          />
+
+          @if (submittedPasswordError()) {
+            <p class="field-error">
+              <i class="pi pi-exclamation-circle" aria-hidden="true"></i>
+              <span>{{ submittedPasswordError() }}</span>
+            </p>
+          }
+
+          <button
+            pButton
+            type="submit"
+            label="Sign in"
+            icon="pi pi-lock-open"
+            [loading]="isSubmitting()"
+            [disabled]="isSubmitting()"
+          ></button>
+        </form>
+      }
+
+      @if (step() === 'new-account') {
+        <div class="auth-form">
+          <h2>Looks like you are new to SOPForge</h2>
+
+          <p class="chosen-email centered-email">
+            <strong>{{ checkedEmail() }}</strong>
+          </p>
+
+          <p class="muted-copy">Create an account using this email to start managing documents and SOPs.</p>
+
+          <button
+            pButton
+            type="button"
+            label="Proceed to create account"
+            icon="pi pi-user-plus"
+            (click)="createAccount()"
+            [disabled]="isSubmitting()"
+          ></button>
+
+          <hr />
+
+          <p class="auth-switch left-align">
+            Already a customer?
+            <a href="" class="auth-link" (click)="$event.preventDefault(); changeEmail()">
+              Sign in with another email
+            </a>
+          </p>
+        </div>
+      }
+    </p-card>
+
+    @if (step() !== 'new-account') {
+      <p class="auth-switch">
+        New here?
+        <a routerLink="/register">Create an account</a>
+      </p>
+    }
+  </section>
+</main>

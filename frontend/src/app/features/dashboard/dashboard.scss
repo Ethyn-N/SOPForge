@@ -1,0 +1,97 @@
+.dashboard-page {
+  min-height: 100vh;
+  background: #f7f8f5;
+}
+
+.topbar {
+  min-height: 84px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px clamp(16px, 4vw, 48px);
+  border-bottom: 1px solid #dde4df;
+  background: #ffffff;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.brand-mark {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: #183a40;
+  color: #ffffff;
+  font-weight: 800;
+}
+
+.brand p,
+.eyebrow,
+.muted,
+.user-panel span {
+  margin: 0;
+  color: #667085;
+}
+
+.brand h1 {
+  margin: 2px 0 0;
+  color: #1f2a2e;
+  font-size: 1.45rem;
+}
+
+.dashboard-content {
+  width: min(100%, 1040px);
+  margin: 0 auto;
+  padding: 32px 16px;
+}
+
+.welcome-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.eyebrow {
+  font-size: 0.8rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.welcome-card h2 {
+  margin: 8px 0;
+  color: #1f2a2e;
+  font-size: 1.8rem;
+}
+
+.muted {
+  max-width: 560px;
+}
+
+.user-panel {
+  min-width: 240px;
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid #dde4df;
+  border-radius: 8px;
+  background: #fafbf8;
+}
+
+.user-panel strong {
+  color: #1f2a2e;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 700px) {
+  .topbar,
+  .welcome-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

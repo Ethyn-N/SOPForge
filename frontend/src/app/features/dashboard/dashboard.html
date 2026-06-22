@@ -1,0 +1,44 @@
+<main class="dashboard-page">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">S</span>
+      <div>
+        <p>SOPForge</p>
+        <h1>Dashboard</h1>
+      </div>
+    </div>
+
+    <button
+      pButton
+      type="button"
+      severity="secondary"
+      label="Sign out"
+      icon="pi pi-sign-out"
+      (click)="logout()"
+    ></button>
+  </header>
+
+  <section class="dashboard-content">
+    <p-card>
+      <div class="welcome-card">
+        <div>
+          <p class="eyebrow">Authenticated session</p>
+          <h2>You are signed in.</h2>
+          <p class="muted">
+            This page is protected by the Angular route guard and your JWT is ready for API requests.
+          </p>
+        </div>
+
+        @if (user(); as currentUser) {
+          <div class="user-panel">
+            <span>Email</span>
+            <strong>{{ currentUser.email }}</strong>
+
+            <span>Role</span>
+            <p-tag [value]="currentUser.role" severity="info" />
+          </div>
+        }
+      </div>
+    </p-card>
+  </section>
+</main>
