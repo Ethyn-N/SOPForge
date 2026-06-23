@@ -35,10 +35,12 @@ export class Register implements OnInit {
   readonly successMessage = signal<string | null>(null);
   readonly submittedEmailError = signal<string | null>(null);
   readonly submittedPasswordError = signal<string | null>(null);
+  readonly submittedConfirmPasswordError = signal<string | null>(null);
 
   readonly form = this.formBuilder.nonNullable.group({
     email: ['', [Validators.required, Validators.pattern(STRICT_EMAIL_PATTERN)]],
-    password: ['', [Validators.required, Validators.minLength(8)]]
+    password: ['', [Validators.required, Validators.minLength(8)]],
+    confirmPassword: ['', [Validators.required]]
   });
 
   ngOnInit(): void {
@@ -87,6 +89,21 @@ export class Register implements OnInit {
     return null;
   }
 
+  private getConfirmPasswordError(): string | null {
+    const confirmPassword = this.form.controls.confirmPassword;
+    const errors = confirmPassword.errors;
+
+    if (errors?.['required']) {
+      return 'Re-enter your password.';
+    }
+
+    if (this.form.controls.password.value !== confirmPassword.value) {
+      return 'Passwords must match.';
+    }
+
+    return null;
+  }
+
   submit(): void {
     if (this.isSubmitting()) {
       return;
@@ -94,17 +111,27 @@ export class Register implements OnInit {
 
     this.submittedEmailError.set(this.getEmailError());
     this.submittedPasswordError.set(this.getPasswordError());
+    this.submittedConfirmPasswordError.set(this.getConfirmPasswordError());
 
-    if (this.submittedEmailError() || this.submittedPasswordError()) {
+    if (
+      this.submittedEmailError() ||
+      this.submittedPasswordError() ||
+      this.submittedConfirmPasswordError()
+    ) {
       return;
     }
 
     this.isSubmitting.set(true);
+    this.errorMessage.set(null);
     this.successMessage.set(null);
+    const request = {
+      email: this.form.controls.email.value,
+      password: this.form.controls.password.value
+    };
 
-    this.authService.register(this.form.getRawValue()).subscribe({
+    this.authService.register(request).subscribe({
       next: () => {
-        this.authService.login(this.form.getRawValue()).subscribe({
+        this.authService.login(request).subscribe({
           next: () => void this.router.navigateByUrl('/dashboard'),
           error: (error) => {
             this.errorMessage.set(this.getRegisterErrorMessage(error));

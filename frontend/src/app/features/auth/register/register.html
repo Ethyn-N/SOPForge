@@ -62,6 +62,24 @@
           </p>
         }
 
+        <label for="confirmPassword">Re-enter password</label>
+        <p-password
+          inputId="confirmPassword"
+          formControlName="confirmPassword"
+          [feedback]="false"
+          [toggleMask]="true"
+          autocomplete="new-password"
+          styleClass="full-width-password"
+          [invalid]="!!submittedConfirmPasswordError()"
+        />
+
+        @if (submittedConfirmPasswordError()) {
+          <p class="field-error">
+            <i class="pi pi-exclamation-circle" aria-hidden="true"></i>
+            <span>{{ submittedConfirmPasswordError() }}</span>
+          </p>
+        }
+
         <button
           pButton
           type="submit"

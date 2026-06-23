@@ -1,44 +1,204 @@
 <main class="dashboard-page">
-  <header class="topbar">
+  <aside class="sidebar">
     <div class="brand">
       <span class="brand-mark">S</span>
       <div>
         <p>SOPForge</p>
-        <h1>Dashboard</h1>
+        <strong>Workspace</strong>
       </div>
     </div>
 
-    <button
-      pButton
-      type="button"
-      severity="secondary"
-      label="Sign out"
-      icon="pi pi-sign-out"
-      (click)="logout()"
-    ></button>
-  </header>
+    <nav class="nav-list" aria-label="Dashboard sections">
+      <a class="nav-item active" href="#documents">
+        <i class="pi pi-file"></i>
+        Documents
+      </a>
+      <a class="nav-item" href="#sops">
+        <i class="pi pi-list-check"></i>
+        SOPs
+      </a>
+      <a class="nav-item" href="#companies">
+        <i class="pi pi-building"></i>
+        Companies
+      </a>
+    </nav>
 
-  <section class="dashboard-content">
-    <p-card>
-      <div class="welcome-card">
+    @if (user(); as currentUser) {
+      <section class="account-panel">
+        <span>Signed in</span>
+        <strong>{{ currentUser.email }}</strong>
+        <p-tag [value]="currentUser.role" severity="info" />
+      </section>
+    }
+  </aside>
+
+  <section class="workspace">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Secure document operations</p>
+        <h1>Dashboard</h1>
+      </div>
+
+      <button
+        pButton
+        type="button"
+        severity="secondary"
+        label="Sign out"
+        icon="pi pi-sign-out"
+        (click)="logout()"
+      ></button>
+    </header>
+
+    @if (errorMessage()) {
+      <div class="notice error" role="alert">
+        <i class="pi pi-exclamation-circle"></i>
+        <span>{{ errorMessage() }}</span>
+      </div>
+    }
+
+    @if (successMessage()) {
+      <div class="notice success" role="status">
+        <i class="pi pi-check-circle"></i>
+        <span>{{ successMessage() }}</span>
+      </div>
+    }
+
+    <section id="companies" class="section-band">
+      <div class="section-heading">
         <div>
-          <p class="eyebrow">Authenticated session</p>
-          <h2>You are signed in.</h2>
-          <p class="muted">
-            This page is protected by the Angular route guard and your JWT is ready for API requests.
-          </p>
+          <p class="eyebrow">Company context</p>
+          <h2>Companies</h2>
         </div>
 
-        @if (user(); as currentUser) {
-          <div class="user-panel">
-            <span>Email</span>
-            <strong>{{ currentUser.email }}</strong>
-
-            <span>Role</span>
-            <p-tag [value]="currentUser.role" severity="info" />
-          </div>
+        @if (isLoadingCompanies()) {
+          <p-progress-spinner ariaLabel="Loading companies" strokeWidth="5" />
         }
       </div>
-    </p-card>
+
+      <form class="create-company" (ngSubmit)="createCompany()">
+        <label for="companyName">Company name</label>
+        <div class="inline-form">
+          <input
+            id="companyName"
+            name="companyName"
+            type="text"
+            autocomplete="organization"
+            [ngModel]="companyName()"
+            (ngModelChange)="companyName.set($event)"
+            placeholder="Example: SOPForge Demo Co."
+          />
+          <button
+            pButton
+            type="submit"
+            label="Create"
+            icon="pi pi-plus"
+            [loading]="isCreatingCompany()"
+          ></button>
+        </div>
+      </form>
+
+      @if (companies().length) {
+        <div class="company-list" aria-label="Companies">
+          @for (company of companies(); track company.id) {
+            <button
+              type="button"
+              class="company-chip"
+              [class.selected]="company.id === selectedCompanyId()"
+              (click)="selectCompany(company.id)"
+            >
+              <span>{{ company.name }}</span>
+              <small>{{ company.role }}</small>
+            </button>
+          }
+        </div>
+      } @else if (!isLoadingCompanies()) {
+        <p class="empty-copy">Create your first company to start uploading documents.</p>
+      }
+    </section>
+
+    <section id="documents" class="section-band">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Selected company</p>
+          <h2>{{ selectedCompany()?.name || 'No company selected' }}</h2>
+        </div>
+
+        <button
+          pButton
+          type="button"
+          severity="secondary"
+          label="Refresh"
+          icon="pi pi-refresh"
+          [disabled]="!selectedCompanyId() || isLoadingDocuments()"
+          (click)="refreshDocuments()"
+        ></button>
+      </div>
+
+      <div class="upload-panel">
+        <label for="documentUpload">Upload document</label>
+        <div class="upload-row">
+          <input
+            id="documentUpload"
+            type="file"
+            accept=".txt,.pdf,.docx,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            [disabled]="!selectedCompanyId() || isUploadingDocument()"
+            (change)="onFileSelected($event)"
+          />
+          <button
+            pButton
+            type="button"
+            label="Upload"
+            icon="pi pi-upload"
+            [disabled]="!selectedCompanyId() || !selectedFileName()"
+            [loading]="isUploadingDocument()"
+            (click)="uploadDocument()"
+          ></button>
+        </div>
+        @if (selectedFileName()) {
+          <p class="selected-file">{{ selectedFileName() }}</p>
+        }
+      </div>
+
+      <div class="documents-region" [class.refreshing]="isLoadingDocuments()">
+        @if (documents().length) {
+          <div class="document-table" role="table" aria-label="Company documents">
+            <div class="table-row table-head" role="row">
+              <span role="columnheader">File</span>
+              <span role="columnheader">Type</span>
+              <span role="columnheader">Size</span>
+              <span role="columnheader">Extraction</span>
+              <span role="columnheader">Uploaded</span>
+            </div>
+
+            @for (document of documents(); track document.id) {
+              <div class="table-row" role="row">
+                <strong role="cell">{{ document.originalFileName }}</strong>
+                <span role="cell">{{ document.fileType }}</span>
+                <span role="cell">{{ formatFileSize(document.fileSize) }}</span>
+                <span role="cell">
+                  <p-tag
+                    [value]="document.extractionStatus"
+                    [severity]="statusSeverity(document.extractionStatus)"
+                  />
+                </span>
+                <span role="cell">{{ formatDate(document.uploadedAt) }}</span>
+              </div>
+            }
+          </div>
+        } @else {
+          <p class="empty-copy">No documents uploaded for this company yet.</p>
+        }
+      </div>
+    </section>
+
+    <section id="sops" class="section-band compact">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Next workflow</p>
+          <h2>SOPs</h2>
+        </div>
+      </div>
+      <p class="empty-copy">SOP generation and review will plug into this workspace next.</p>
+    </section>
   </section>
 </main>
