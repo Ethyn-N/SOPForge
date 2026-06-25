@@ -16,6 +16,7 @@ Implemented so far:
 - Company member roles and permissions
 - Admin-only user management endpoints
 - Real file upload with local disk storage
+- File storage abstraction with a local storage implementation
 - TXT, PDF, and DOCX text extraction
 - Document extraction status and error tracking
 - Company-scoped document upload/list/download/delete
@@ -28,11 +29,15 @@ Implemented so far:
 - SOP version history
 - Flyway database migrations
 - Angular auth flow with guarded dashboard
-- Basic frontend company creation, company selection, and document upload/listing
+- Frontend company creation and company selection
+- Frontend document upload, download, deletion, extraction status, and file preview
+- PDF, TXT, and DOCX document rendering in the workspace
+- Frontend multi-document selection, relevance preview, and SOP draft generation
+- SOP generation continues across workspace navigation and is recovered after a page reload
+- Readable SOP library detail view
 
 Not finished yet:
 
-- Full frontend SOP generation screens
 - Frontend approval workflow
 - Frontend version history views
 - Frontend member management screens
@@ -79,7 +84,7 @@ securedoc-ai/
     exception/     API error handling
     model/         JPA entities and enums
     repository/    Spring Data repositories
-    service/       Business logic
+    service/       Business logic and file storage adapters
   src/main/resources/
     db/migration/  Flyway SQL migrations
     application.properties
@@ -309,10 +314,7 @@ npm.cmd run build
 ### Frontend Next
 
 - Build full document detail pages
-- Add document text viewer
-- Add chunk and relevance debugging views
-- Add SOP generation form
-- Let users choose source documents and generation instructions
+- Add full chunk debugging views
 - Add SOP list and detail pages
 - Add SOP edit screen
 - Add submit/approve/reject/archive controls

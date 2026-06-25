@@ -4,6 +4,7 @@ uploads/
 .env
 .env.local
 .env.*.local
+*.log
 src/main/resources/application-local.properties
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/

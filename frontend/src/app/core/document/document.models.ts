@@ -16,3 +16,12 @@ export interface Document {
   companyId: number | null;
   companyName: string | null;
 }
+
+export interface DocumentText {
+  documentId: number;
+  originalFileName: string;
+  extractedText: string | null;
+  textExtractedAt: string | null;
+  extractionStatus: ExtractionStatus;
+  extractionError: string | null;
+}

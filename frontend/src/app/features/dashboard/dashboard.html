@@ -1,83 +1,56 @@
-<main class="dashboard-page">
+<main class="app-shell">
   <aside class="sidebar">
     <div class="brand">
       <span class="brand-mark">S</span>
-      <div>
-        <p>SOPForge</p>
-        <strong>Workspace</strong>
-      </div>
+      <strong>SOPForge</strong>
     </div>
 
-    <nav class="nav-list" aria-label="Dashboard sections">
-      <a class="nav-item active" href="#documents">
-        <i class="pi pi-file"></i>
-        Documents
-      </a>
-      <a class="nav-item" href="#sops">
-        <i class="pi pi-list-check"></i>
-        SOPs
-      </a>
-      <a class="nav-item" href="#companies">
-        <i class="pi pi-building"></i>
-        Companies
-      </a>
-    </nav>
-
-    @if (user(); as currentUser) {
-      <section class="account-panel">
-        <span>Signed in</span>
-        <strong>{{ currentUser.email }}</strong>
-        <p-tag [value]="currentUser.role" severity="info" />
-      </section>
-    }
-  </aside>
-
-  <section class="workspace">
-    <header class="topbar">
-      <div>
-        <p class="eyebrow">Secure document operations</p>
-        <h1>Dashboard</h1>
+    <section class="workspace-control">
+      <div class="workspace-label">
+        <span>Workspace</span>
+        <button
+          type="button"
+          class="icon-button quiet"
+          title="Create workspace"
+          aria-label="Create workspace"
+          (click)="toggleCompanyCreator()"
+        >
+          <i class="pi pi-plus"></i>
+        </button>
       </div>
 
-      <button
-        pButton
-        type="button"
-        severity="secondary"
-        label="Sign out"
-        icon="pi pi-sign-out"
-        (click)="logout()"
-      ></button>
-    </header>
-
-    @if (errorMessage()) {
-      <div class="notice error" role="alert">
-        <i class="pi pi-exclamation-circle"></i>
-        <span>{{ errorMessage() }}</span>
-      </div>
-    }
-
-    @if (successMessage()) {
-      <div class="notice success" role="status">
-        <i class="pi pi-check-circle"></i>
-        <span>{{ successMessage() }}</span>
-      </div>
-    }
-
-    <section id="companies" class="section-band">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">Company context</p>
-          <h2>Companies</h2>
-        </div>
-
-        @if (isLoadingCompanies()) {
-          <p-progress-spinner ariaLabel="Loading companies" strokeWidth="5" />
+      @if (companies().length) {
+        <select
+          aria-label="Current workspace"
+          [value]="selectedCompanyId()"
+          (change)="selectCompanyFromControl($any($event.target).value)"
+        >
+          @for (company of companies(); track company.id) {
+            <option [value]="company.id">{{ company.name }}</option>
+          }
+        </select>
+        @if (selectedCompany(); as company) {
+          <span class="workspace-role">{{ company.role }}</span>
         }
-      </div>
+      } @else {
+        <button type="button" class="empty-workspace" (click)="toggleCompanyCreator()">
+          <i class="pi pi-plus-circle"></i>
+          Create your first workspace
+        </button>
+      }
 
-      <form class="create-company" (ngSubmit)="createCompany()">
-        <label for="companyName">Company name</label>
-        <div class="inline-form">
+      @if (showCompanyCreator()) {
+        <div
+          class="workspace-popover-scrim"
+          role="presentation"
+          (click)="showCompanyCreator.set(false)"
+        ></div>
+        <form
+          class="workspace-creator"
+          (ngSubmit)="createCompany()"
+          (click)="$event.stopPropagation()"
+        >
+          <label for="companyName">Workspace name</label>
           <input
             id="companyName"
             name="companyName"
@@ -85,120 +58,662 @@
             autocomplete="organization"
             [ngModel]="companyName()"
             (ngModelChange)="companyName.set($event)"
-            placeholder="Example: SOPForge Demo Co."
+            placeholder="Operations team"
           />
-          <button
-            pButton
-            type="submit"
-            label="Create"
-            icon="pi pi-plus"
-            [loading]="isCreatingCompany()"
-          ></button>
-        </div>
-      </form>
-
-      @if (companies().length) {
-        <div class="company-list" aria-label="Companies">
-          @for (company of companies(); track company.id) {
+          <div class="creator-actions">
             <button
+              pButton
               type="button"
-              class="company-chip"
-              [class.selected]="company.id === selectedCompanyId()"
-              (click)="selectCompany(company.id)"
-            >
-              <span>{{ company.name }}</span>
-              <small>{{ company.role }}</small>
-            </button>
-          }
-        </div>
-      } @else if (!isLoadingCompanies()) {
-        <p class="empty-copy">Create your first company to start uploading documents.</p>
+              severity="secondary"
+              label="Cancel"
+              (click)="toggleCompanyCreator()"
+            ></button>
+            <button
+              pButton
+              type="submit"
+              label="Create"
+              [loading]="isCreatingCompany()"
+            ></button>
+          </div>
+        </form>
       }
     </section>
 
-    <section id="documents" class="section-band">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">Selected company</p>
-          <h2>{{ selectedCompany()?.name || 'No company selected' }}</h2>
-        </div>
+    <nav class="nav-list" aria-label="Workspace sections">
+      <button
+        type="button"
+        class="nav-item"
+        [class.active]="activeView() === 'documents'"
+        (click)="showDocuments()"
+      >
+        <i class="pi pi-folder"></i>
+        <span>Documents</span>
+        <small>{{ documents().length }}</small>
+      </button>
+      <button
+        type="button"
+        class="nav-item"
+        [class.active]="activeView() === 'sops'"
+        (click)="showSops()"
+      >
+        <i class="pi pi-book"></i>
+        <span>SOPs</span>
+        @if (generationIsForSelectedCompany()) {
+          <i class="pi pi-spin pi-spinner nav-progress" aria-label="Generating SOP"></i>
+        } @else {
+          <small>{{ sops().length }}</small>
+        }
+      </button>
+    </nav>
 
+    @if (pendingGeneration(); as generation) {
+      <button type="button" class="generation-status" (click)="openPendingGeneration()">
+        <p-progress-spinner ariaLabel="Generating SOP" strokeWidth="6" />
+        <span>
+          <strong>Generating SOP</strong>
+          <small>{{ generation.title }}</small>
+        </span>
+      </button>
+    }
+
+    <div class="sidebar-spacer"></div>
+
+    @if (user(); as currentUser) {
+      <section class="account-panel">
+        <span class="account-avatar">{{ currentUser.email.charAt(0).toUpperCase() }}</span>
+        <div>
+          <strong>{{ currentUser.email }}</strong>
+          <small>{{ currentUser.role }}</small>
+        </div>
+        <button
+          type="button"
+          class="icon-button quiet"
+          title="Sign out"
+          aria-label="Sign out"
+          (click)="logout()"
+        >
+          <i class="pi pi-sign-out"></i>
+        </button>
+      </section>
+    }
+  </aside>
+
+  <section class="main-area">
+    <header class="topbar">
+      <div>
+        <p>{{ selectedCompany()?.name || 'SOPForge' }}</p>
+        <h1>{{ activeView() === 'documents' ? 'Documents' : 'SOPs' }}</h1>
+      </div>
+
+      @if (activeView() === 'documents') {
+        <div class="topbar-actions">
+          <button
+            type="button"
+            class="icon-button"
+            title="Refresh documents"
+            aria-label="Refresh documents"
+            [disabled]="!selectedCompanyId() || isLoadingDocuments()"
+            (click)="refreshDocuments()"
+          >
+            <i class="pi pi-refresh"></i>
+          </button>
+          <label
+            class="primary-action"
+            [class.disabled]="
+              !selectedCompanyId() || !canManageSelectedCompany() || isUploadingDocument()
+            "
+            for="documentUpload"
+          >
+            <i class="pi pi-upload"></i>
+            Upload document
+          </label>
+          <input
+            id="documentUpload"
+            class="visually-hidden"
+            type="file"
+            accept=".txt,.pdf,.docx,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            [disabled]="
+              !selectedCompanyId() || !canManageSelectedCompany() || isUploadingDocument()
+            "
+            (change)="onFileSelected($event); uploadDocument()"
+          />
+        </div>
+      } @else {
         <button
           pButton
           type="button"
-          severity="secondary"
-          label="Refresh"
-          icon="pi pi-refresh"
-          [disabled]="!selectedCompanyId() || isLoadingDocuments()"
-          (click)="refreshDocuments()"
+          label="New SOP"
+          icon="pi pi-plus"
+          [disabled]="!canManageSelectedCompany() || generationInProgress()"
+          (click)="showSops('generate')"
         ></button>
-      </div>
+      }
+    </header>
 
-      <div class="upload-panel">
-        <label for="documentUpload">Upload document</label>
-        <div class="upload-row">
-          <input
-            id="documentUpload"
-            type="file"
-            accept=".txt,.pdf,.docx,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            [disabled]="!selectedCompanyId() || isUploadingDocument()"
-            (change)="onFileSelected($event)"
-          />
-          <button
-            pButton
-            type="button"
-            label="Upload"
-            icon="pi pi-upload"
-            [disabled]="!selectedCompanyId() || !selectedFileName()"
-            [loading]="isUploadingDocument()"
-            (click)="uploadDocument()"
-          ></button>
+    <div class="notice-region" aria-live="polite">
+      @if (errorMessage()) {
+        <div class="notice error" role="alert">
+          <i class="pi pi-exclamation-circle"></i>
+          <span>{{ errorMessage() }}</span>
         </div>
-        @if (selectedFileName()) {
-          <p class="selected-file">{{ selectedFileName() }}</p>
+      }
+      @if (successMessage()) {
+        <div class="notice success" role="status">
+          <i class="pi pi-check-circle"></i>
+          <span>{{ successMessage() }}</span>
+        </div>
+      }
+    </div>
+
+    @if (!selectedCompanyId() && !isLoadingCompanies()) {
+      <section class="empty-state">
+        <span class="empty-icon"><i class="pi pi-building"></i></span>
+        <h2>Create a workspace to get started</h2>
+        <p>Workspaces keep each company's documents, members, and SOPs separate.</p>
+        <button
+          pButton
+          type="button"
+          label="Create workspace"
+          icon="pi pi-plus"
+          (click)="toggleCompanyCreator()"
+        ></button>
+      </section>
+    } @else if (activeView() === 'documents') {
+      <section class="content-view">
+        <div class="view-toolbar">
+          <div class="search-box">
+            <i class="pi pi-search"></i>
+            <span>Document library</span>
+          </div>
+          @if (selectedDocumentIds().size) {
+            <button
+              pButton
+              type="button"
+              severity="secondary"
+              [label]="'Create SOP from ' + selectedDocumentIds().size"
+              icon="pi pi-sparkles"
+              (click)="showSops('generate')"
+            ></button>
+          }
+        </div>
+
+        @if (selectedFileName() && isUploadingDocument()) {
+          <div class="upload-progress">
+            <p-progress-spinner ariaLabel="Uploading document" strokeWidth="5" />
+            <span>Uploading {{ selectedFileName() }}</span>
+          </div>
         }
-      </div>
 
-      <div class="documents-region" [class.refreshing]="isLoadingDocuments()">
-        @if (documents().length) {
-          <div class="document-table" role="table" aria-label="Company documents">
-            <div class="table-row table-head" role="row">
-              <span role="columnheader">File</span>
-              <span role="columnheader">Type</span>
-              <span role="columnheader">Size</span>
-              <span role="columnheader">Extraction</span>
-              <span role="columnheader">Uploaded</span>
+        <div class="library" [class.refreshing]="isLoadingDocuments()">
+          @if (documents().length) {
+            <div class="library-row library-head">
+              <span>Select</span>
+              <span>Name</span>
+              <span>Status</span>
+              <span>Size</span>
+              <span>Updated</span>
+              <span></span>
             </div>
-
             @for (document of documents(); track document.id) {
-              <div class="table-row" role="row">
-                <strong role="cell">{{ document.originalFileName }}</strong>
-                <span role="cell">{{ document.fileType }}</span>
-                <span role="cell">{{ formatFileSize(document.fileSize) }}</span>
-                <span role="cell">
+              <div class="library-row">
+                <span>
+                  <input
+                    class="document-checkbox"
+                    type="checkbox"
+                    [checked]="isDocumentSelected(document.id)"
+                    [disabled]="document.extractionStatus !== 'SUCCESS'"
+                    [attr.aria-label]="'Select ' + document.originalFileName"
+                    (change)="toggleDocumentSelection(document)"
+                  />
+                </span>
+                <div class="name-cell">
+                  <span class="file-icon"><i class="pi pi-file"></i></span>
+                  <div>
+                    <strong>{{ document.originalFileName }}</strong>
+                    <small>{{ document.fileType }}</small>
+                    @if (document.extractionError) {
+                      <em>{{ document.extractionError }}</em>
+                    }
+                  </div>
+                </div>
+                <span>
                   <p-tag
                     [value]="document.extractionStatus"
                     [severity]="statusSeverity(document.extractionStatus)"
                   />
                 </span>
-                <span role="cell">{{ formatDate(document.uploadedAt) }}</span>
+                <span>{{ formatFileSize(document.fileSize) }}</span>
+                <span>{{ formatDate(document.uploadedAt) }}</span>
+                <div class="row-actions">
+                  <button
+                    type="button"
+                    class="icon-button"
+                    title="View document"
+                    aria-label="View document"
+                    (click)="previewDocument(document)"
+                  >
+                    <i class="pi pi-eye"></i>
+                  </button>
+                  <button
+                    type="button"
+                    class="icon-button"
+                    title="Download document"
+                    aria-label="Download document"
+                    (click)="downloadDocument(document)"
+                  >
+                    <i class="pi pi-download"></i>
+                  </button>
+                  <button
+                    type="button"
+                    class="icon-button danger"
+                    title="Delete document"
+                    aria-label="Delete document"
+                    [disabled]="!canManageSelectedCompany()"
+                    (click)="requestDocumentDelete(document)"
+                  >
+                    <i class="pi pi-trash"></i>
+                  </button>
+                </div>
               </div>
             }
-          </div>
-        } @else {
-          <p class="empty-copy">No documents uploaded for this company yet.</p>
-        }
-      </div>
-    </section>
-
-    <section id="sops" class="section-band compact">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">Next workflow</p>
-          <h2>SOPs</h2>
+          } @else if (!isLoadingDocuments()) {
+            <section class="empty-state compact">
+              <span class="empty-icon"><i class="pi pi-file-arrow-up"></i></span>
+              <h2>No documents yet</h2>
+              <p>Upload a PDF, DOCX, or TXT file to build your knowledge library.</p>
+              <label class="primary-action" for="documentUpload">
+                <i class="pi pi-upload"></i>
+                Upload document
+              </label>
+            </section>
+          }
         </div>
-      </div>
-      <p class="empty-copy">SOP generation and review will plug into this workspace next.</p>
-    </section>
+      </section>
+    } @else if (sopView() === 'library') {
+      <section class="content-view">
+        <div class="view-toolbar">
+          <div class="segmented-control" aria-label="SOP filters">
+            <button
+              type="button"
+              [class.selected]="sopFilter() === 'ALL'"
+              (click)="setSopFilter('ALL')"
+            >
+              All SOPs
+            </button>
+            <button
+              type="button"
+              [class.selected]="sopFilter() === 'DRAFT'"
+              (click)="setSopFilter('DRAFT')"
+            >
+              Drafts
+            </button>
+            <button
+              type="button"
+              [class.selected]="sopFilter() === 'PENDING_REVIEW'"
+              (click)="setSopFilter('PENDING_REVIEW')"
+            >
+              In review
+            </button>
+            <button
+              type="button"
+              [class.selected]="sopFilter() === 'APPROVED'"
+              (click)="setSopFilter('APPROVED')"
+            >
+              Approved
+            </button>
+          </div>
+        </div>
+
+        <div class="sop-library" [class.refreshing]="isLoadingSops()">
+          @for (sop of filteredSops(); track sop.id) {
+            <button type="button" class="sop-row" (click)="openSop(sop)">
+              <span class="sop-icon"><i class="pi pi-book"></i></span>
+              <div class="sop-summary">
+                <strong>{{ sop.title }}</strong>
+                <p>{{ sop.purpose }}</p>
+                <small>
+                  {{ sop.sourceDocumentOriginalFileNames.length }} source
+                  {{ sop.sourceDocumentOriginalFileNames.length === 1 ? 'document' : 'documents' }}
+                  · Updated {{ formatDate(sop.updatedAt) }}
+                </small>
+              </div>
+              <p-tag [value]="sop.status" [severity]="sopStatusSeverity(sop.status)" />
+              <i class="pi pi-chevron-right row-chevron"></i>
+            </button>
+          } @empty {
+            @if (!isLoadingSops()) {
+              <section class="empty-state compact">
+                <span class="empty-icon"><i class="pi pi-book"></i></span>
+                @if (sops().length) {
+                  <h2>No matching SOPs</h2>
+                  <p>There are no SOPs with this status.</p>
+                } @else {
+                  <h2>No SOPs yet</h2>
+                  <p>Select source documents and generate your first structured procedure.</p>
+              <button
+                pButton
+                type="button"
+                label="Create SOP"
+                icon="pi pi-plus"
+                [disabled]="!canManageSelectedCompany() || generationInProgress()"
+                (click)="showSops('generate')"
+              ></button>
+                }
+              </section>
+            }
+          }
+        </div>
+
+        @if (generatedSop(); as sop) {
+          <article class="generated-sop">
+            <header>
+              <div>
+                <span>Latest generated draft</span>
+                <h2>{{ sop.title }}</h2>
+              </div>
+              <p-tag [value]="sop.status" [severity]="sopStatusSeverity(sop.status)" />
+            </header>
+            <div class="sop-details">
+              <section>
+                <h3>Purpose</h3>
+                <p>{{ sop.purpose }}</p>
+              </section>
+              <section>
+                <h3>Scope</h3>
+                <p>{{ sop.scope }}</p>
+              </section>
+              <section>
+                <h3>Roles</h3>
+                <p>{{ sop.roles }}</p>
+              </section>
+              <section class="procedure">
+                <h3>Procedure</h3>
+                <p>{{ sop.procedure }}</p>
+              </section>
+            </div>
+          </article>
+        }
+      </section>
+    } @else {
+      <section class="creator-view">
+        <header class="creator-header">
+          <button type="button" class="back-link" (click)="showSops('library')">
+            <i class="pi pi-arrow-left"></i>
+            SOP library
+          </button>
+          <div>
+            <h2>Create an SOP</h2>
+            <p>Choose source documents, guide the AI, and review the evidence before generating.</p>
+          </div>
+        </header>
+
+        <div class="creator-layout">
+          <form class="sop-form" (ngSubmit)="generateSop()">
+            <div>
+              <label for="sopTitle">SOP title</label>
+              <input
+                id="sopTitle"
+                name="sopTitle"
+                type="text"
+                [ngModel]="sopTitle()"
+                (ngModelChange)="sopTitle.set($event); relevancePreview.set(null)"
+                placeholder="Restaurant Closing SOP"
+              />
+            </div>
+
+            <div>
+              <label for="sopInstructions">What should this SOP focus on?</label>
+              <textarea
+                id="sopInstructions"
+                name="sopInstructions"
+                rows="5"
+                [ngModel]="sopInstructions()"
+                (ngModelChange)="sopInstructions.set($event); relevancePreview.set(null)"
+                placeholder="Focus on sanitation, side work, and manager sign-off."
+              ></textarea>
+            </div>
+
+            <fieldset class="source-picker">
+              <legend>Source documents</legend>
+              @for (document of documents(); track document.id) {
+                <label [class.unavailable]="document.extractionStatus !== 'SUCCESS'">
+                  <input
+                    type="checkbox"
+                    [checked]="isDocumentSelected(document.id)"
+                    [disabled]="document.extractionStatus !== 'SUCCESS'"
+                    (change)="toggleDocumentSelection(document)"
+                  />
+                  <span class="file-icon"><i class="pi pi-file"></i></span>
+                  <span>
+                    <strong>{{ document.originalFileName }}</strong>
+                    <small>{{ document.extractionStatus }}</small>
+                  </span>
+                </label>
+              } @empty {
+                <p>No documents are available. Upload documents first.</p>
+              }
+            </fieldset>
+
+            <div class="form-actions">
+              <button
+                pButton
+                type="button"
+                severity="secondary"
+                label="Preview evidence"
+                icon="pi pi-search"
+                [loading]="isPreviewingRelevance()"
+                [disabled]="generationInProgress()"
+                (click)="previewRelevance()"
+              ></button>
+              <button
+                pButton
+                type="submit"
+                [label]="generationInProgress() ? 'Generating in background' : 'Generate draft'"
+                icon="pi pi-sparkles"
+                [loading]="generationInProgress()"
+                [disabled]="isPreviewingRelevance() || generationInProgress()"
+              ></button>
+            </div>
+          </form>
+
+          <aside class="evidence-panel">
+            <header>
+              <div>
+                <span>Retrieval preview</span>
+                <strong>Relevant source evidence</strong>
+              </div>
+              @if (relevancePreview()) {
+                <small>{{ relevancePreview()!.chunks.length }} chunks</small>
+              }
+            </header>
+
+            @if (relevancePreview(); as preview) {
+              <div class="query-terms">
+                @for (term of preview.queryTerms; track term) {
+                  <span>{{ term }}</span>
+                }
+              </div>
+              <div class="chunk-list">
+                @for (chunk of preview.chunks; track chunk.chunkId) {
+                  <article>
+                    <header>
+                      <strong>{{ chunk.originalFileName }}</strong>
+                      <span>{{ chunk.finalScore }}</span>
+                    </header>
+                    <p>{{ chunk.contentPreview }}</p>
+                    @if (chunk.matchedTerms.length) {
+                      <small>Matched: {{ chunk.matchedTerms.join(', ') }}</small>
+                    }
+                  </article>
+                } @empty {
+                  <p class="panel-empty">No relevant evidence found.</p>
+                }
+              </div>
+            } @else {
+              <div class="panel-empty">
+                <i class="pi pi-search"></i>
+                <p>Preview evidence to see which document sections will guide the AI.</p>
+              </div>
+            }
+          </aside>
+        </div>
+      </section>
+    }
   </section>
 </main>
+
+@if (documentPreview() || isLoadingDocumentPreview()) {
+  <div class="modal-backdrop" role="presentation" (click)="closeDocumentPreview()">
+    <section
+      class="modal document-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="documentPreviewHeading"
+      (click)="$event.stopPropagation()"
+    >
+      <header class="modal-header">
+        <div>
+          <span>Document preview</span>
+          <h2 id="documentPreviewHeading">
+            {{ documentPreview()?.document?.originalFileName || 'Loading document' }}
+          </h2>
+        </div>
+        <div class="modal-header-actions">
+          @if (documentPreview(); as preview) {
+            <button
+              type="button"
+              class="icon-button"
+              aria-label="Download document"
+              title="Download document"
+              (click)="downloadDocument(preview.document)"
+            >
+              <i class="pi pi-download"></i>
+            </button>
+          }
+          <button
+            type="button"
+            class="icon-button"
+            aria-label="Close"
+            title="Close"
+            (click)="closeDocumentPreview()"
+          >
+            <i class="pi pi-times"></i>
+          </button>
+        </div>
+      </header>
+
+      @if (isLoadingDocumentPreview()) {
+        <div class="modal-loading">
+          <p-progress-spinner ariaLabel="Loading document" strokeWidth="5" />
+        </div>
+      } @else if (documentPreview(); as preview) {
+        @if (preview.isDocx) {
+          <div #docxPreview class="docx-preview-host"></div>
+        } @else {
+          <iframe
+            class="document-frame"
+            [src]="preview.safeUrl"
+            [title]="preview.document.originalFileName"
+          ></iframe>
+        }
+      }
+    </section>
+  </div>
+}
+
+@if (selectedSop(); as sop) {
+  <div class="modal-backdrop" role="presentation" (click)="closeSop()">
+    <article
+      class="modal sop-reader-modal"
+      role="main"
+      aria-modal="true"
+      aria-labelledby="sopReaderHeading"
+      (click)="$event.stopPropagation()"
+    >
+      <header class="modal-header">
+        <div>
+          <span>Standard operating procedure</span>
+          <h2 id="sopReaderHeading">{{ sop.title }}</h2>
+        </div>
+        <div class="modal-header-actions">
+          <p-tag [value]="sop.status" [severity]="sopStatusSeverity(sop.status)" />
+          <button
+            type="button"
+            class="icon-button"
+            aria-label="Close"
+            title="Close"
+            (click)="closeSop()"
+          >
+            <i class="pi pi-times"></i>
+          </button>
+        </div>
+      </header>
+
+      <div class="sop-reader">
+        <section>
+          <h3>Purpose</h3>
+          <p>{{ sop.purpose }}</p>
+        </section>
+        <section>
+          <h3>Scope</h3>
+          <p>{{ sop.scope }}</p>
+        </section>
+        <section>
+          <h3>Roles</h3>
+          <p>{{ sop.roles }}</p>
+        </section>
+        <section class="reader-procedure">
+          <h3>Procedure</h3>
+          <p>{{ sop.procedure }}</p>
+        </section>
+        <section class="reader-sources">
+          <h3>Source documents</h3>
+          <ul>
+            @for (fileName of sop.sourceDocumentOriginalFileNames; track fileName) {
+              <li><i class="pi pi-file"></i>{{ fileName }}</li>
+            }
+          </ul>
+        </section>
+      </div>
+    </article>
+  </div>
+}
+
+@if (deleteCandidate(); as document) {
+  <div class="modal-backdrop" role="presentation" (click)="cancelDocumentDelete()">
+    <section
+      class="modal confirm-modal"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="deleteDocumentHeading"
+      (click)="$event.stopPropagation()"
+    >
+      <header class="modal-header">
+        <div>
+          <span>Delete document</span>
+          <h2 id="deleteDocumentHeading">{{ document.originalFileName }}</h2>
+        </div>
+      </header>
+      <p>This permanently removes the stored file and its extracted data.</p>
+      <div class="modal-actions">
+        <button
+          pButton
+          type="button"
+          severity="secondary"
+          label="Cancel"
+          [disabled]="isDeletingDocument()"
+          (click)="cancelDocumentDelete()"
+        ></button>
+        <button
+          pButton
+          type="button"
+          severity="danger"
+          label="Delete"
+          icon="pi pi-trash"
+          [loading]="isDeletingDocument()"
+          (click)="confirmDocumentDelete()"
+        ></button>
+      </div>
+    </section>
+  </div>
+}

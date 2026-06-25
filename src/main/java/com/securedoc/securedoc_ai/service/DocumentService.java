@@ -1,6 +1,5 @@
 package com.securedoc.securedoc_ai.service;
 
-import com.securedoc.securedoc_ai.config.StorageProperties;
 import com.securedoc.securedoc_ai.exception.BadRequestException;
 import com.securedoc.securedoc_ai.exception.NotFoundException;
 import com.securedoc.securedoc_ai.model.Company;
@@ -9,6 +8,7 @@ import com.securedoc.securedoc_ai.model.Document;
 import com.securedoc.securedoc_ai.model.ExtractionStatus;
 import com.securedoc.securedoc_ai.model.User;
 import com.securedoc.securedoc_ai.repository.DocumentRepository;
+import com.securedoc.securedoc_ai.service.storage.FileStorageService;
 import lombok.RequiredArgsConstructor;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
@@ -21,8 +21,6 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -40,7 +38,7 @@ public class DocumentService {
     );
 
     private final DocumentRepository documentRepository;
-    private final StorageProperties storageProperties;
+    private final FileStorageService fileStorageService;
     private final DocumentChunkService documentChunkService;
     private final CompanyService companyService;
 
@@ -68,15 +66,8 @@ public class DocumentService {
                 ));
     }
 
-    public Path getStoredFilePath(Document document) {
-        Path uploadPath = Path.of(storageProperties.getUploadDir()).toAbsolutePath().normalize();
-        Path storedFilePath = uploadPath.resolve(document.getStoredFileName()).normalize();
-
-        if (!storedFilePath.startsWith(uploadPath) || !Files.exists(storedFilePath)) {
-            throw new NotFoundException("Document file could not be found.");
-        }
-
-        return storedFilePath;
+    public byte[] getStoredFile(Document document) {
+        return fileStorageService.load(document.getStoredFileName());
     }
 
     @Transactional
@@ -94,19 +85,11 @@ public class DocumentService {
         String contentType = file.getContentType();
         String originalFileName = cleanOriginalFileName(Objects.requireNonNull(file.getOriginalFilename()));
         String storedFileName = UUID.randomUUID() + getStoredExtension(originalFileName, contentType);
-        Path uploadPath = Path.of(storageProperties.getUploadDir()).toAbsolutePath().normalize();
-        Path storedFilePath = uploadPath.resolve(storedFileName).normalize();
-
-        if (!storedFilePath.startsWith(uploadPath)) {
-            throw new BadRequestException("File upload could not be completed.");
-        }
+        byte[] fileBytes;
 
         try {
-            Files.createDirectories(uploadPath);
-
-            try (InputStream inputStream = file.getInputStream()) {
-                Files.copy(inputStream, storedFilePath);
-            }
+            fileBytes = file.getBytes();
+            fileStorageService.store(storedFileName, new java.io.ByteArrayInputStream(fileBytes));
         } catch (IOException exception) {
             throw new BadRequestException("File upload could not be completed.");
         }
@@ -116,12 +99,12 @@ public class DocumentService {
                 storedFileName,
                 contentType,
                 file.getSize(),
-                "/uploads/documents/" + storedFileName
+                fileStorageService.storageUrl(storedFileName)
         );
         document.setOwner(user);
         document.setCompany(company);
         document.setUploadedAt(LocalDateTime.now());
-        extractText(document, storedFilePath);
+        extractText(document, fileBytes);
 
         Document savedDocument = documentRepository.save(document);
         documentChunkService.createChunks(savedDocument);
@@ -155,18 +138,7 @@ public class DocumentService {
     }
 
     private void deleteStoredFile(Document document) {
-        Path uploadPath = Path.of(storageProperties.getUploadDir()).toAbsolutePath().normalize();
-        Path storedFilePath = uploadPath.resolve(document.getStoredFileName()).normalize();
-
-        if (!storedFilePath.startsWith(uploadPath)) {
-            throw new BadRequestException("Document file could not be deleted.");
-        }
-
-        try {
-            Files.deleteIfExists(storedFilePath);
-        } catch (IOException exception) {
-            throw new BadRequestException("Document file could not be deleted.");
-        }
+        fileStorageService.delete(document.getStoredFileName());
     }
 
     private void validateUpload(MultipartFile file) {
@@ -226,15 +198,15 @@ public class DocumentService {
         return normalizedFileName;
     }
 
-    private void extractText(Document document, Path storedFilePath) {
+    private void extractText(Document document, byte[] fileBytes) {
         document.setExtractionStatus(ExtractionStatus.PENDING);
 
         try {
             String extractedText = switch (document.getFileType()) {
-                case "text/plain" -> Files.readString(storedFilePath, StandardCharsets.UTF_8);
-                case "application/pdf" -> extractPdfText(storedFilePath);
+                case "text/plain" -> new String(fileBytes, StandardCharsets.UTF_8);
+                case "application/pdf" -> extractPdfText(fileBytes);
                 case "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ->
-                        extractDocxText(storedFilePath);
+                        extractDocxText(fileBytes);
                 default -> throw new BadRequestException("Unsupported file type.");
             };
 
@@ -260,15 +232,15 @@ public class DocumentService {
         return message;
     }
 
-    private String extractPdfText(Path storedFilePath) throws IOException {
-        try (PDDocument document = Loader.loadPDF(storedFilePath.toFile())) {
+    private String extractPdfText(byte[] fileBytes) throws IOException {
+        try (PDDocument document = Loader.loadPDF(fileBytes)) {
             return new PDFTextStripper().getText(document);
         }
     }
 
-    private String extractDocxText(Path storedFilePath) throws IOException {
+    private String extractDocxText(byte[] fileBytes) throws IOException {
         try (
-                InputStream inputStream = Files.newInputStream(storedFilePath);
+                InputStream inputStream = new java.io.ByteArrayInputStream(fileBytes);
                 XWPFDocument document = new XWPFDocument(inputStream);
                 XWPFWordExtractor extractor = new XWPFWordExtractor(document)
         ) {

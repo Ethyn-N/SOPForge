@@ -17,9 +17,6 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.List;
 
 @RestController
@@ -79,10 +76,9 @@ public class CompanyDocumentController {
             @PathVariable Long companyId,
             @PathVariable Long id,
             @AuthenticationPrincipal User user
-    ) throws IOException {
+    ) {
         Document document = documentService.getDocument(id, companyId, user);
-        Path storedFilePath = documentService.getStoredFilePath(document);
-        byte[] fileBytes = Files.readAllBytes(storedFilePath);
+        byte[] fileBytes = documentService.getStoredFile(document);
 
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(document.getFileType()))
