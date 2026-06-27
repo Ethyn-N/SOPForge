@@ -8,11 +8,13 @@ import com.securedoc.securedoc_ai.model.Document;
 import com.securedoc.securedoc_ai.model.ExtractionStatus;
 import com.securedoc.securedoc_ai.model.Sop;
 import com.securedoc.securedoc_ai.model.SopStatus;
+import com.securedoc.securedoc_ai.model.SopGenerationJobStatus;
 import com.securedoc.securedoc_ai.model.User;
 import com.securedoc.securedoc_ai.repository.CompanyMemberRepository;
 import com.securedoc.securedoc_ai.repository.CompanyRepository;
 import com.securedoc.securedoc_ai.repository.DocumentRepository;
 import com.securedoc.securedoc_ai.repository.SopRepository;
+import com.securedoc.securedoc_ai.repository.SopGenerationJobRepository;
 import com.securedoc.securedoc_ai.repository.SopSourceChunkRepository;
 import com.securedoc.securedoc_ai.repository.SopVersionRepository;
 import com.securedoc.securedoc_ai.repository.UserRepository;
@@ -35,6 +37,7 @@ import org.springframework.util.FileSystemUtils;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.util.List;
 
 import static org.hamcrest.Matchers.containsString;
@@ -42,6 +45,7 @@ import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -84,6 +88,9 @@ class SopControllerIntegrationTest {
     private SopRepository sopRepository;
 
     @Autowired
+    private SopGenerationJobRepository sopGenerationJobRepository;
+
+    @Autowired
     private SopVersionRepository sopVersionRepository;
 
     @Autowired
@@ -103,6 +110,7 @@ class SopControllerIntegrationTest {
     @BeforeEach
     void setUp() throws IOException {
         FileSystemUtils.deleteRecursively(Path.of(storageProperties.getUploadDir()));
+        sopGenerationJobRepository.deleteAll();
         sopSourceChunkRepository.deleteAll();
         sopVersionRepository.deleteAll();
         sopRepository.deleteAll();
@@ -156,6 +164,74 @@ class SopControllerIntegrationTest {
         assertEquals(userOne.getId(), savedSop.getOwner().getId());
         assertTrue(savedSop.getProcedure().contains("Step two"));
         assertEquals(1, sopVersionRepository.countBySop(savedSop));
+    }
+
+    @Test
+    void companyGenerationJobCompletesAndLinksGeneratedSop() throws Exception {
+        Company company = createCompanyFor(userOne, "Restaurant Group");
+        uploadCompanyTextDocument(
+                company,
+                "opening.txt",
+                "Unlock doors and complete safety checks.",
+                userOneToken
+        );
+        Document document = documentRepository.findByCompany(company).getFirst();
+
+        String response = mockMvc.perform(post("/api/companies/{companyId}/sop-generation-jobs", company.getId())
+                        .header("Authorization", bearer(userOneToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Opening SOP",
+                                  "sourceDocumentIds": [%d],
+                                  "roles": "Opening Manager"
+                                }
+                                """.formatted(document.getId())))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.id").exists())
+                .andExpect(jsonPath("$.status").exists())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        Long jobId = Long.valueOf(response.replaceAll(".*\\\"id\\\":(\\d+).*", "$1"));
+        long deadline = System.currentTimeMillis() + 3000;
+
+        while (System.currentTimeMillis() < deadline
+                && sopGenerationJobRepository.findById(jobId)
+                .orElseThrow()
+                .getStatus() != SopGenerationJobStatus.SUCCESS) {
+            Thread.sleep(25);
+        }
+
+        mockMvc.perform(get("/api/companies/{companyId}/sop-generation-jobs/{jobId}", company.getId(), jobId)
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SUCCESS"))
+                .andExpect(jsonPath("$.roles").value("Opening Manager"))
+                .andExpect(jsonPath("$.resultSopId").isNumber())
+                .andExpect(jsonPath("$.sourceDocumentIds[0]").value(document.getId()));
+
+        Sop generatedSop = sopRepository.findByCompany(company).getFirst();
+        assertEquals("Opening Manager", generatedSop.getRoles());
+    }
+
+    @Test
+    void ownerCanDeleteCompanyAndItsStoredDocuments() throws Exception {
+        Company company = createCompanyFor(userOne, "Temporary Workspace");
+        uploadCompanyTextDocument(company, "temporary.txt", "Temporary process", userOneToken);
+        Document document = documentRepository.findByCompany(company).getFirst();
+        Path storedFile = Path.of(storageProperties.getUploadDir()).resolve(document.getStoredFileName());
+
+        assertTrue(Files.exists(storedFile));
+
+        mockMvc.perform(delete("/api/companies/{companyId}", company.getId())
+                        .header("Authorization", bearer(userOneToken)))
+                .andExpect(status().isNoContent());
+
+        assertFalse(companyRepository.existsById(company.getId()));
+        assertFalse(documentRepository.existsById(document.getId()));
+        assertFalse(Files.exists(storedFile));
     }
 
     @Test

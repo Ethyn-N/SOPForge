@@ -26,6 +26,7 @@ describe('Dashboard', () => {
   let companyService: {
     getCompanies: ReturnType<typeof vi.fn>;
     createCompany: ReturnType<typeof vi.fn>;
+    deleteCompany: ReturnType<typeof vi.fn>;
   };
   let documentService: {
     getCompanyDocuments: ReturnType<typeof vi.fn>;
@@ -37,6 +38,15 @@ describe('Dashboard', () => {
     getCompanySops: ReturnType<typeof vi.fn>;
     previewCompanyRelevance: ReturnType<typeof vi.fn>;
     generateCompanySop: ReturnType<typeof vi.fn>;
+    createCompanyGenerationJob: ReturnType<typeof vi.fn>;
+    getCompanyGenerationJob: ReturnType<typeof vi.fn>;
+    getCompanyGenerationJobs: ReturnType<typeof vi.fn>;
+    updateCompanySop: ReturnType<typeof vi.fn>;
+    submitCompanySop: ReturnType<typeof vi.fn>;
+    approveCompanySop: ReturnType<typeof vi.fn>;
+    rejectCompanySop: ReturnType<typeof vi.fn>;
+    archiveCompanySop: ReturnType<typeof vi.fn>;
+    getCompanySopVersions: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(async () => {
@@ -44,7 +54,8 @@ describe('Dashboard', () => {
 
     companyService = {
       getCompanies: vi.fn(() => of(companies)),
-      createCompany: vi.fn()
+      createCompany: vi.fn(),
+      deleteCompany: vi.fn()
     };
     documentService = {
       getCompanyDocuments: vi.fn((companyId: number) =>
@@ -59,7 +70,16 @@ describe('Dashboard', () => {
         of(companyId === 1 ? [draftSop, approvedSop] : [])
       ),
       previewCompanyRelevance: vi.fn(),
-      generateCompanySop: vi.fn()
+      generateCompanySop: vi.fn(),
+      createCompanyGenerationJob: vi.fn(),
+      getCompanyGenerationJob: vi.fn(),
+      getCompanyGenerationJobs: vi.fn(),
+      updateCompanySop: vi.fn(),
+      submitCompanySop: vi.fn(),
+      approveCompanySop: vi.fn(),
+      rejectCompanySop: vi.fn(),
+      archiveCompanySop: vi.fn(),
+      getCompanySopVersions: vi.fn()
     };
 
     await TestBed.configureTestingModule({
@@ -117,6 +137,28 @@ describe('Dashboard', () => {
     expect(documentService.getCompanyDocuments).toHaveBeenCalledWith(2);
   });
 
+  it('keeps a newly created workspace selected in the workspace control', () => {
+    const createdCompany: Company = {
+      id: 3,
+      name: 'New Workspace',
+      role: 'OWNER',
+      createdAt: '2026-06-27T12:00:00Z'
+    };
+    companyService.createCompany.mockReturnValue(of(createdCompany));
+    fixture = TestBed.createComponent(Dashboard);
+    fixture.detectChanges();
+    const dashboard = fixture.componentInstance;
+
+    dashboard.companyName.set('New Workspace');
+    dashboard.createCompany();
+    fixture.detectChanges();
+
+    const workspaceSelect = (fixture.nativeElement as HTMLElement)
+      .querySelector<HTMLSelectElement>('select[aria-label="Current workspace"]');
+    expect(dashboard.selectedCompanyId()).toBe(3);
+    expect(workspaceSelect?.value).toBe('3');
+  });
+
   it('uses real Documents and SOP navigation views', () => {
     fixture = TestBed.createComponent(Dashboard);
     fixture.detectChanges();
@@ -138,6 +180,18 @@ describe('Dashboard', () => {
     dashboard.setSopFilter('APPROVED');
 
     expect(dashboard.filteredSops()).toEqual([approvedSop]);
+  });
+
+  it('shows archived SOPs only in the archived filter', () => {
+    const archivedSop = sopFixture(33, 1, 'Old Procedure', 'ARCHIVED', [11]);
+    fixture = TestBed.createComponent(Dashboard);
+    fixture.detectChanges();
+    const dashboard = fixture.componentInstance;
+    dashboard.sops.set([draftSop, archivedSop]);
+
+    expect(dashboard.filteredSops()).toEqual([draftSop]);
+    dashboard.setSopFilter('ARCHIVED');
+    expect(dashboard.filteredSops()).toEqual([archivedSop]);
   });
 
   it('opens and closes a complete SOP reader', () => {
@@ -171,22 +225,33 @@ describe('Dashboard', () => {
 
   it('recovers a completed SOP from pending generation polling', () => {
     vi.useFakeTimers();
-    const startedAt = new Date().toISOString();
+    const createdAt = new Date().toISOString();
     const recoveredSop = {
       ...sopFixture(40, 1, 'Recovered SOP', 'DRAFT', [11]),
-      createdAt: startedAt,
-      updatedAt: startedAt
+      createdAt,
+      updatedAt: createdAt
+    };
+    const completedJob = {
+      id: 70,
+      companyId: 1,
+      requestedTitle: 'Recovered SOP',
+      instructions: null,
+      roles: 'Manager',
+      status: 'SUCCESS' as const,
+      sourceDocumentIds: [11],
+      sourceDocumentOriginalFileNames: ['server-guide.pdf'],
+      resultSopId: 40,
+      errorMessage: null,
+      createdAt,
+      startedAt: createdAt,
+      completedAt: createdAt
     };
     localStorage.setItem(
       'sopforge_pending_generation',
-      JSON.stringify({
-        companyId: 1,
-        title: 'Recovered SOP',
-        sourceDocumentIds: [11],
-        startedAt
-      })
+      JSON.stringify(completedJob)
     );
     sopService.getCompanySops.mockReturnValue(of([recoveredSop]));
+    sopService.getCompanyGenerationJob.mockReturnValue(of(completedJob));
 
     fixture = TestBed.createComponent(Dashboard);
     fixture.detectChanges();

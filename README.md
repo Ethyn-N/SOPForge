@@ -322,24 +322,19 @@ npm.cmd test -- --watch=false
 
 - Build full document detail pages
 - Add full chunk debugging views
-- Add SOP list and detail pages
-- Add SOP edit screen
-- Add submit/approve/reject/archive controls
-- Add SOP version history screen
 - Add source chunk viewer for generated SOPs
-- Add company member management UI
-- Add role-aware UI states
 - Add loading skeletons and empty states
 - Add better toast/alert system
 - Expand frontend tests as new workflows are added
+- Split the growing dashboard into smaller route-level components
+- Add selectable Word export layouts for generated SOPs
 
 ### Backend Next
 
 - Replace keyword relevance with vector embeddings
 - Add pgvector or another vector store
 - Store embeddings for document chunks
-- Add async extraction/generation jobs
-- Add upload progress and background job status
+- Add async document extraction jobs and upload progress
 - Add audit log events
 - Add password reset flow
 - Add refresh tokens or more complete session management
@@ -353,7 +348,7 @@ npm.cmd test -- --watch=false
 - Generate embeddings for chunks
 - Use semantic search instead of only keyword scoring
 - Add document relevance filtering for unrelated uploads
-- Add prompt templates by SOP type
+- Add structured optional SOP sections without tying them to specific industries
 - Add generation confidence/source coverage indicators
 - Add user feedback loop for generated SOP quality
 - Add provider abstraction for Ollama, OpenAI, Anthropic, or cloud-hosted models
@@ -416,7 +411,7 @@ This project is not production-ready yet, but the direction is production-friend
 - User data is isolated by owner/company checks.
 - Admin routes are role-restricted.
 - File storage should move out of the app folder before production.
-- AI generation should eventually run as a background job.
+- AI generation runs as a persisted background job; production should move execution to a durable external queue.
 
 ## Why This Project Exists
 

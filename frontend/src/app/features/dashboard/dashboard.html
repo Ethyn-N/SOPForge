@@ -8,6 +8,7 @@
     <section class="workspace-control">
       <div class="workspace-label">
         <span>Workspace</span>
+        @if (companies().length) {
         <button
           type="button"
           class="icon-button quiet"
@@ -17,20 +18,29 @@
         >
           <i class="pi pi-plus"></i>
         </button>
+        }
       </div>
 
       @if (companies().length) {
         <select
+          name="workspace"
           aria-label="Current workspace"
-          [value]="selectedCompanyId()"
-          (change)="selectCompanyFromControl($any($event.target).value)"
+          [ngModel]="selectedCompanyId()"
+          (ngModelChange)="selectCompanyFromControl($event)"
         >
           @for (company of companies(); track company.id) {
             <option [value]="company.id">{{ company.name }}</option>
           }
         </select>
         @if (selectedCompany(); as company) {
-          <span class="workspace-role">{{ company.role }}</span>
+          <div class="workspace-meta">
+            <span class="workspace-role">{{ company.role }}</span>
+            @if (company.role === 'OWNER') {
+              <button type="button" class="workspace-delete" title="Delete workspace" aria-label="Delete workspace" (click)="requestCompanyDelete()">
+                <i class="pi pi-trash"></i>
+              </button>
+            }
+          </div>
         }
       } @else {
         <button type="button" class="empty-workspace" (click)="toggleCompanyCreator()">
@@ -104,6 +114,16 @@
           <small>{{ sops().length }}</small>
         }
       </button>
+      <button
+        type="button"
+        class="nav-item"
+        [class.active]="activeView() === 'members'"
+        (click)="showMembers()"
+      >
+        <i class="pi pi-users"></i>
+        <span>Members</span>
+        <small>{{ members().length }}</small>
+      </button>
     </nav>
 
     @if (pendingGeneration(); as generation) {
@@ -111,7 +131,7 @@
         <p-progress-spinner ariaLabel="Generating SOP" strokeWidth="6" />
         <span>
           <strong>Generating SOP</strong>
-          <small>{{ generation.title }}</small>
+          <small>{{ generation.requestedTitle }}</small>
         </span>
       </button>
     }
@@ -122,7 +142,7 @@
       <section class="account-panel">
         <span class="account-avatar">{{ currentUser.email.charAt(0).toUpperCase() }}</span>
         <div>
-          <strong>{{ currentUser.email }}</strong>
+          <strong [title]="currentUser.email">{{ currentUser.email }}</strong>
           <small>{{ currentUser.role }}</small>
         </div>
         <button
@@ -142,7 +162,7 @@
     <header class="topbar">
       <div>
         <p>{{ selectedCompany()?.name || 'SOPForge' }}</p>
-        <h1>{{ activeView() === 'documents' ? 'Documents' : 'SOPs' }}</h1>
+        <h1>{{ activeView() === 'documents' ? 'Documents' : activeView() === 'members' ? 'Members' : 'SOPs' }}</h1>
       </div>
 
       @if (activeView() === 'documents') {
@@ -157,11 +177,11 @@
           >
             <i class="pi pi-refresh"></i>
           </button>
+          @if (canManageSelectedCompany()) {
+          <span class="upload-limit">PDF, DOCX, or TXT, up to 25 MB per file</span>
           <label
             class="primary-action"
-            [class.disabled]="
-              !selectedCompanyId() || !canManageSelectedCompany() || isUploadingDocument()
-            "
+            [class.disabled]="!selectedCompanyId() || isUploadingDocument()"
             for="documentUpload"
           >
             <i class="pi pi-upload"></i>
@@ -171,20 +191,20 @@
             id="documentUpload"
             class="visually-hidden"
             type="file"
+            multiple
             accept=".txt,.pdf,.docx,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            [disabled]="
-              !selectedCompanyId() || !canManageSelectedCompany() || isUploadingDocument()
-            "
+            [disabled]="!selectedCompanyId() || isUploadingDocument()"
             (change)="onFileSelected($event); uploadDocument()"
           />
+          }
         </div>
-      } @else {
+      } @else if (activeView() === 'sops' && canManageSelectedCompany()) {
         <button
           pButton
           type="button"
           label="New SOP"
           icon="pi pi-plus"
-          [disabled]="!canManageSelectedCompany() || generationInProgress()"
+          [disabled]="generationInProgress()"
           (click)="showSops('generate')"
         ></button>
       }
@@ -225,7 +245,7 @@
             <i class="pi pi-search"></i>
             <span>Document library</span>
           </div>
-          @if (selectedDocumentIds().size) {
+          @if (selectedDocumentIds().size && canManageSelectedCompany()) {
             <button
               pButton
               type="button"
@@ -285,6 +305,7 @@
                 <span>{{ formatFileSize(document.fileSize) }}</span>
                 <span>{{ formatDate(document.uploadedAt) }}</span>
                 <div class="row-actions">
+                  @if (canManageSelectedCompany()) {
                   <button
                     type="button"
                     class="icon-button"
@@ -308,11 +329,11 @@
                     class="icon-button danger"
                     title="Delete document"
                     aria-label="Delete document"
-                    [disabled]="!canManageSelectedCompany()"
                     (click)="requestDocumentDelete(document)"
                   >
                     <i class="pi pi-trash"></i>
                   </button>
+                  }
                 </div>
               </div>
             }
@@ -321,11 +342,54 @@
               <span class="empty-icon"><i class="pi pi-file-arrow-up"></i></span>
               <h2>No documents yet</h2>
               <p>Upload a PDF, DOCX, or TXT file to build your knowledge library.</p>
+              @if (canManageSelectedCompany()) {
               <label class="primary-action" for="documentUpload">
                 <i class="pi pi-upload"></i>
                 Upload document
               </label>
+              }
             </section>
+          }
+        </div>
+      </section>
+    } @else if (activeView() === 'members') {
+      <section class="content-view members-view">
+        @if (canManageSelectedCompany()) {
+          <form class="member-form" (ngSubmit)="addMember()">
+            <label>Email<input name="memberEmail" type="email" [ngModel]="memberEmail()" (ngModelChange)="memberEmail.set($event)" placeholder="teammate@example.com" /></label>
+            <fieldset class="role-choice">
+              <legend>Role</legend>
+              <button type="button" [class.selected]="memberRole() === 'MEMBER'" (click)="memberRole.set('MEMBER')"><strong>Member</strong><small>View documents and SOPs</small></button>
+              <button type="button" [class.selected]="memberRole() === 'REVIEWER'" (click)="memberRole.set('REVIEWER')"><strong>Reviewer</strong><small>Approve or reject SOPs</small></button>
+              <button type="button" [class.selected]="memberRole() === 'ADMIN'" (click)="memberRole.set('ADMIN')"><strong>Admin</strong><small>Manage content and members</small></button>
+            </fieldset>
+            <button pButton type="submit" label="Add member" icon="pi pi-user-plus" [loading]="isSavingMember()"></button>
+          </form>
+        }
+        <div class="member-list">
+          @for (member of members(); track member.id) {
+            <article>
+              <span class="account-avatar">{{ member.email.charAt(0).toUpperCase() }}</span>
+              <div><strong [title]="member.email">{{ member.email }}</strong><small>Joined {{ formatDate(member.createdAt) }}</small></div>
+              @if (canManageSelectedCompany() && member.role !== 'OWNER') {
+                <div class="role-menu-wrap">
+                  <button type="button" class="role-menu-trigger" (click)="toggleRoleMenu(member.id)">{{ member.role }} <i class="pi pi-chevron-down"></i></button>
+                  @if (openRoleMenuMemberId() === member.id) {
+                    <div class="role-menu-scrim" role="presentation" (click)="openRoleMenuMemberId.set(null)"></div>
+                    <div class="role-menu" (click)="$event.stopPropagation()">
+                      <button type="button" (click)="changeMemberRole(member, 'MEMBER')"><strong>Member</strong><small>View documents and SOPs</small></button>
+                      <button type="button" (click)="changeMemberRole(member, 'REVIEWER')"><strong>Reviewer</strong><small>Approve or reject SOPs</small></button>
+                      <button type="button" (click)="changeMemberRole(member, 'ADMIN')"><strong>Admin</strong><small>Manage content and members</small></button>
+                    </div>
+                  }
+                </div>
+                <button type="button" class="icon-button" title="Remove member" aria-label="Remove member" (click)="removeMember(member)"><i class="pi pi-trash"></i></button>
+              } @else {
+                <p-tag [value]="member.role" severity="secondary" />
+              }
+            </article>
+          } @empty {
+            @if (!isLoadingMembers()) { <p>No members found.</p> }
           }
         </div>
       </section>
@@ -361,6 +425,7 @@
             >
               Approved
             </button>
+            <button type="button" [class.selected]="sopFilter() === 'ARCHIVED'" (click)="setSopFilter('ARCHIVED')">Archived</button>
           </div>
         </div>
 
@@ -390,14 +455,16 @@
                 } @else {
                   <h2>No SOPs yet</h2>
                   <p>Select source documents and generate your first structured procedure.</p>
+              @if (canManageSelectedCompany()) {
               <button
                 pButton
                 type="button"
                 label="Create SOP"
                 icon="pi pi-plus"
-                [disabled]="!canManageSelectedCompany() || generationInProgress()"
+                [disabled]="generationInProgress()"
                 (click)="showSops('generate')"
               ></button>
+              }
                 }
               </section>
             }
@@ -471,6 +538,11 @@
                 (ngModelChange)="sopInstructions.set($event); relevancePreview.set(null)"
                 placeholder="Focus on sanitation, side work, and manager sign-off."
               ></textarea>
+            </div>
+
+            <div>
+              <label for="sopRoles">Responsible roles</label>
+              <input id="sopRoles" name="sopRoles" type="text" [ngModel]="sopRoles()" (ngModelChange)="sopRoles.set($event); relevancePreview.set(null)" placeholder="Shift Manager, Server" />
             </div>
 
             <fieldset class="source-picker">
@@ -649,6 +721,36 @@
         </div>
       </header>
 
+      <div class="sop-reader-actions">
+        @if (!isEditingSop() && canManageSelectedCompany() && (sop.status === 'DRAFT' || sop.status === 'REJECTED')) {
+          <button pButton type="button" severity="secondary" label="Edit" icon="pi pi-pencil" (click)="startEditingSop()"></button>
+          <button pButton type="button" label="Submit for review" icon="pi pi-send" [loading]="isUpdatingSopStatus()" (click)="updateSopStatus('submit')"></button>
+        }
+        @if (!isEditingSop() && sop.status === 'PENDING_REVIEW' && canApproveSelectedCompany()) {
+          <button pButton type="button" label="Approve" icon="pi pi-check" [loading]="isUpdatingSopStatus()" (click)="updateSopStatus('approve')"></button>
+        }
+        @if (!isEditingSop() && sop.status === 'PENDING_REVIEW' && canReviewSelectedCompany()) {
+          <button pButton type="button" severity="danger" label="Reject" icon="pi pi-times" [loading]="isUpdatingSopStatus()" (click)="updateSopStatus('reject')"></button>
+        }
+        @if (!isEditingSop() && canManageSelectedCompany() && sop.status !== 'PENDING_REVIEW' && sop.status !== 'ARCHIVED') {
+          <button pButton type="button" severity="secondary" label="Archive" icon="pi pi-box" [loading]="isUpdatingSopStatus()" (click)="updateSopStatus('archive')"></button>
+        }
+        <button pButton type="button" severity="secondary" label="Version history" icon="pi pi-history" [loading]="isLoadingSopVersions()" (click)="loadSopVersions()"></button>
+      </div>
+
+      @if (isEditingSop()) {
+        <form class="sop-editor" (ngSubmit)="saveSop()">
+          <label>Title<input name="editTitle" [ngModel]="editSopTitle()" (ngModelChange)="editSopTitle.set($event)" /></label>
+          <label>Purpose<textarea name="editPurpose" rows="3" [ngModel]="editSopPurpose()" (ngModelChange)="editSopPurpose.set($event)"></textarea></label>
+          <label>Scope<textarea name="editScope" rows="3" [ngModel]="editSopScope()" (ngModelChange)="editSopScope.set($event)"></textarea></label>
+          <label>Roles<textarea name="editRoles" rows="3" [ngModel]="editSopRoles()" (ngModelChange)="editSopRoles.set($event)"></textarea></label>
+          <label class="editor-procedure">Procedure<textarea name="editProcedure" rows="12" [ngModel]="editSopProcedure()" (ngModelChange)="editSopProcedure.set($event)"></textarea></label>
+          <div class="modal-actions">
+            <button pButton type="button" severity="secondary" label="Cancel" [disabled]="isSavingSop()" (click)="isEditingSop.set(false)"></button>
+            <button pButton type="submit" label="Save changes" icon="pi pi-save" [loading]="isSavingSop()"></button>
+          </div>
+        </form>
+      } @else {
       <div class="sop-reader">
         <section>
           <h3>Purpose</h3>
@@ -675,6 +777,19 @@
           </ul>
         </section>
       </div>
+      }
+
+      @if (sopVersions().length) {
+        <section class="version-history">
+          <h3>Version history</h3>
+          @for (version of sopVersions(); track version.id) {
+            <article>
+              <strong>Version {{ version.versionNumber }} - {{ version.changeReason }}</strong>
+              <span>{{ version.status }} by {{ version.createdByEmail }} on {{ formatDate(version.createdAt) }}</span>
+            </article>
+          }
+        </section>
+      }
     </article>
   </div>
 }
@@ -713,6 +828,19 @@
           [loading]="isDeletingDocument()"
           (click)="confirmDocumentDelete()"
         ></button>
+      </div>
+    </section>
+  </div>
+}
+
+@if (companyDeleteCandidate(); as company) {
+  <div class="modal-backdrop" role="presentation" (click)="companyDeleteCandidate.set(null)">
+    <section class="modal confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="deleteCompanyHeading" (click)="$event.stopPropagation()">
+      <header class="modal-header"><div><span>Delete workspace</span><h2 id="deleteCompanyHeading">{{ company.name }}</h2></div></header>
+      <p>This permanently deletes the workspace, its documents, generated SOPs, versions, and member access.</p>
+      <div class="modal-actions">
+        <button pButton type="button" severity="secondary" label="Cancel" [disabled]="isDeletingCompany()" (click)="companyDeleteCandidate.set(null)"></button>
+        <button pButton type="button" severity="danger" label="Delete workspace" icon="pi pi-trash" [loading]="isDeletingCompany()" (click)="confirmCompanyDelete()"></button>
       </div>
     </section>
   </div>

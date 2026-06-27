@@ -29,7 +29,7 @@ import java.util.*;
 @Service
 public class DocumentService {
 
-    private static final long MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+    private static final long MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
 
     private static final Map<String, String> ALLOWED_FILE_TYPES = Map.of(
             "application/pdf", ".pdf",
@@ -151,7 +151,7 @@ public class DocumentService {
         }
 
         if (file.getSize() > MAX_FILE_SIZE_BYTES) {
-            throw new BadRequestException("Uploaded file must be 10 MB or smaller.");
+            throw new BadRequestException("Uploaded file must be 25 MB or smaller.");
         }
 
         if (!ALLOWED_FILE_TYPES.containsKey(file.getContentType())) {

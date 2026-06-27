@@ -3,6 +3,7 @@ package com.securedoc.securedoc_ai.controller;
 import com.securedoc.securedoc_ai.dto.DocumentResponse;
 import com.securedoc.securedoc_ai.dto.RelevancePreviewResponse;
 import com.securedoc.securedoc_ai.dto.SopGenerateRequest;
+import com.securedoc.securedoc_ai.dto.SopGenerationJobResponse;
 import com.securedoc.securedoc_ai.dto.SopResponse;
 import com.securedoc.securedoc_ai.dto.SopSourceChunkResponse;
 import com.securedoc.securedoc_ai.dto.SopUpdateRequest;
@@ -11,8 +12,10 @@ import com.securedoc.securedoc_ai.model.Sop;
 import com.securedoc.securedoc_ai.model.SopVersion;
 import com.securedoc.securedoc_ai.model.User;
 import com.securedoc.securedoc_ai.service.SopService;
+import com.securedoc.securedoc_ai.service.SopGenerationJobService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
@@ -24,6 +27,7 @@ import java.util.List;
 public class SopController {
 
     private final SopService sopService;
+    private final SopGenerationJobService sopGenerationJobService;
 
     @GetMapping("/sops")
     public List<SopResponse> getSops(@AuthenticationPrincipal User user) {
@@ -152,6 +156,40 @@ public class SopController {
     ) {
         Sop sop = sopService.generateSop(request, user, companyId);
         return new SopResponse(sop);
+    }
+
+    @PostMapping("/companies/{companyId}/sop-generation-jobs")
+    public ResponseEntity<SopGenerationJobResponse> createCompanySopGenerationJob(
+            @PathVariable Long companyId,
+            @RequestBody SopGenerateRequest request,
+            @AuthenticationPrincipal User user
+    ) {
+        return ResponseEntity.status(HttpStatus.ACCEPTED)
+                .body(new SopGenerationJobResponse(
+                        sopGenerationJobService.createJob(companyId, request, user)
+                ));
+    }
+
+    @GetMapping("/companies/{companyId}/sop-generation-jobs")
+    public List<SopGenerationJobResponse> getCompanySopGenerationJobs(
+            @PathVariable Long companyId,
+            @AuthenticationPrincipal User user
+    ) {
+        return sopGenerationJobService.getJobs(companyId, user)
+                .stream()
+                .map(SopGenerationJobResponse::new)
+                .toList();
+    }
+
+    @GetMapping("/companies/{companyId}/sop-generation-jobs/{jobId}")
+    public SopGenerationJobResponse getCompanySopGenerationJob(
+            @PathVariable Long companyId,
+            @PathVariable Long jobId,
+            @AuthenticationPrincipal User user
+    ) {
+        return new SopGenerationJobResponse(
+                sopGenerationJobService.getJob(companyId, jobId, user)
+        );
     }
 
     @PostMapping("/sops/relevance-preview")

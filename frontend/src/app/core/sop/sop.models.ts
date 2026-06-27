@@ -4,6 +4,25 @@ export interface SopGenerateRequest {
   title: string;
   sourceDocumentIds: number[];
   instructions: string;
+  roles: string;
+}
+
+export type SopGenerationJobStatus = 'QUEUED' | 'RUNNING' | 'SUCCESS' | 'FAILED';
+
+export interface SopGenerationJob {
+  id: number;
+  companyId: number;
+  requestedTitle: string;
+  instructions: string | null;
+  roles: string | null;
+  status: SopGenerationJobStatus;
+  sourceDocumentIds: number[];
+  sourceDocumentOriginalFileNames: string[];
+  resultSopId: number | null;
+  errorMessage: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
 }
 
 export interface RelevanceChunk {
@@ -54,4 +73,23 @@ export interface Sop {
   companyName: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SopUpdateRequest {
+  title: string;
+  purpose: string;
+  scope: string;
+  procedure: string;
+  roles: string;
+}
+
+export interface SopVersion extends SopUpdateRequest {
+  id: number;
+  sopId: number;
+  versionNumber: number;
+  status: SopStatus;
+  createdById: number;
+  createdByEmail: string;
+  changeReason: string;
+  createdAt: string;
 }

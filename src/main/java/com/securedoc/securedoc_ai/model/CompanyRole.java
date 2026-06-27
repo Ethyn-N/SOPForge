@@ -4,6 +4,5 @@ public enum CompanyRole {
     OWNER,
     ADMIN,
     MEMBER,
-    REVIEWER,
-    APPROVER
+    REVIEWER
 }

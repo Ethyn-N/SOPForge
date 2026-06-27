@@ -184,7 +184,7 @@ public class SopService {
         GeneratedSopDraft generatedSopDraft = aiSopGenerator.generate(
                 promptDocuments,
                 request.title(),
-                request.instructions(),
+                generationInstructions(request.instructions(), request.roles()),
                 user
         );
 
@@ -193,7 +193,7 @@ public class SopService {
                 requiredGenerated(generatedSopDraft.purpose(), "purpose"),
                 requiredGenerated(generatedSopDraft.scope(), "scope"),
                 requiredGenerated(generatedSopDraft.procedure(), "procedure"),
-                requiredGenerated(generatedSopDraft.roles(), "roles"),
+                requestedOrGeneratedRoles(request.roles(), generatedSopDraft.roles()),
                 documents,
                 user,
                 company
@@ -352,7 +352,7 @@ public class SopService {
     }
 
     public Sop approveSop(Long id, Long companyId, User user) {
-        companyService.requireCompanyRole(companyId, user, CompanyRole.OWNER, CompanyRole.ADMIN, CompanyRole.APPROVER);
+        companyService.requireCompanyRole(companyId, user, CompanyRole.OWNER, CompanyRole.ADMIN, CompanyRole.REVIEWER);
         Sop sop = getSop(id, companyId, user);
         requireStatus(sop, List.of(SopStatus.PENDING_REVIEW), "approved");
 
@@ -419,6 +419,21 @@ public class SopService {
         }
 
         return value;
+    }
+
+    private String generationInstructions(String instructions, String roles) {
+        if (isBlank(roles)) {
+            return instructions;
+        }
+        String roleInstruction = "The user assigned these responsible roles: " + roles.trim()
+                + ". Use only these roles in the SOP.";
+        return isBlank(instructions) ? roleInstruction : instructions.trim() + "\n\n" + roleInstruction;
+    }
+
+    private String requestedOrGeneratedRoles(String requestedRoles, String generatedRoles) {
+        return isBlank(requestedRoles)
+                ? requiredGenerated(generatedRoles, "roles")
+                : requestedRoles.trim();
     }
 
     private String requiredUpdate(String value, String fieldName) {

@@ -295,6 +295,8 @@
 }
 
 .account-panel strong {
+  display: block;
+  min-width: 0;
   overflow: hidden;
   font-size: 0.78rem;
   text-overflow: ellipsis;
@@ -356,6 +358,11 @@
   cursor: not-allowed;
 }
 
+.upload-limit {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -372,8 +379,22 @@
   position: fixed;
   z-index: 100;
   top: 18px;
-  right: 24px;
+  left: 50%;
+  transform: translateX(-50%);
   width: min(420px, calc(100vw - 32px));
+}
+
+.workspace-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.workspace-delete {
+  border: 0;
+  background: transparent;
+  color: #8d2824;
+  cursor: pointer;
 }
 
 .notice {
@@ -982,6 +1003,176 @@
 
 .sop-reader-modal {
   width: min(880px, 100%);
+}
+
+.sop-reader-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.sop-editor {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.sop-editor label {
+  display: grid;
+  gap: 7px;
+  color: #3f4149;
+  font-weight: 650;
+}
+
+.sop-editor label:first-child,
+.sop-editor .editor-procedure,
+.sop-editor .modal-actions {
+  grid-column: 1 / -1;
+}
+
+.version-history {
+  display: grid;
+  gap: 10px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.version-history h3 {
+  margin: 0;
+}
+
+.version-history article {
+  display: grid;
+  gap: 3px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.version-history span {
+  color: #6a6c75;
+  font-size: 0.85rem;
+}
+
+.member-form {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(360px, 1.4fr) auto;
+  align-items: end;
+  gap: 12px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--line);
+}
+
+.role-choice {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  padding: 0;
+  border: 0;
+}
+
+.role-choice legend {
+  margin-bottom: 7px;
+  font-weight: 650;
+}
+
+.role-choice button,
+.role-menu button {
+  display: grid;
+  gap: 2px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: #343640;
+  text-align: left;
+  cursor: pointer;
+}
+
+.role-choice button.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.role-choice small,
+.role-menu small {
+  color: #6a6c75;
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+.role-menu-wrap {
+  position: relative;
+}
+
+.role-menu-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 120px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.role-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 5px);
+  right: 0;
+  display: grid;
+  gap: 5px;
+  width: 250px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgb(30 31 38 / 14%);
+}
+
+.role-menu-scrim {
+  position: fixed;
+  z-index: 19;
+  inset: 0;
+}
+
+.member-form label {
+  display: grid;
+  gap: 7px;
+  font-weight: 650;
+}
+
+.member-list {
+  display: grid;
+}
+
+.member-list article {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.member-list article > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.member-list article > div strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.member-list small {
+  color: #6a6c75;
 }
 
 .sop-reader {

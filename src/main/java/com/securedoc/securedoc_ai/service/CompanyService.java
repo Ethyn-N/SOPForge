@@ -12,10 +12,14 @@ import com.securedoc.securedoc_ai.model.CompanyRole;
 import com.securedoc.securedoc_ai.model.User;
 import com.securedoc.securedoc_ai.repository.CompanyMemberRepository;
 import com.securedoc.securedoc_ai.repository.CompanyRepository;
+import com.securedoc.securedoc_ai.repository.DocumentRepository;
 import com.securedoc.securedoc_ai.repository.UserRepository;
+import com.securedoc.securedoc_ai.service.storage.FileStorageService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
 
@@ -26,6 +30,8 @@ public class CompanyService {
     private final CompanyRepository companyRepository;
     private final CompanyMemberRepository companyMemberRepository;
     private final UserRepository userRepository;
+    private final DocumentRepository documentRepository;
+    private final FileStorageService fileStorageService;
 
     public List<CompanyMember> getCompaniesForUser(User user) {
         return companyMemberRepository.findByUserOrderByCompanyNameAsc(user);
@@ -44,6 +50,22 @@ public class CompanyService {
 
         Company company = companyRepository.save(new Company(request.name().trim()));
         return companyMemberRepository.save(new CompanyMember(company, user, CompanyRole.OWNER));
+    }
+
+    @Transactional
+    public void deleteCompany(Long companyId, User user) {
+        Company company = requireCompanyRole(companyId, user, CompanyRole.OWNER);
+        List<String> storedFileNames = documentRepository.findByCompany(company).stream()
+                .map(document -> document.getStoredFileName())
+                .toList();
+
+        companyRepository.delete(company);
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                storedFileNames.forEach(fileStorageService::delete);
+            }
+        });
     }
 
     public Company getCompanyForUser(Long companyId, User user) {

@@ -39,6 +39,15 @@ public class CompanyController {
         return new CompanyResponse(companyMember);
     }
 
+    @DeleteMapping("/{companyId}")
+    public ResponseEntity<Void> deleteCompany(
+            @PathVariable Long companyId,
+            @AuthenticationPrincipal User user
+    ) {
+        companyService.deleteCompany(companyId, user);
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/{companyId}/members")
     public List<CompanyMemberResponse> getCompanyMembers(
             @PathVariable Long companyId,

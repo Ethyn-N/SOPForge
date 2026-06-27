@@ -8,3 +8,15 @@ export interface Company {
 export interface CompanyCreateRequest {
   name: string;
 }
+
+export type CompanyRole = 'OWNER' | 'ADMIN' | 'REVIEWER' | 'MEMBER';
+
+export interface CompanyMember {
+  id: number;
+  companyId: number;
+  companyName: string;
+  userId: number;
+  email: string;
+  role: CompanyRole;
+  createdAt: string;
+}
