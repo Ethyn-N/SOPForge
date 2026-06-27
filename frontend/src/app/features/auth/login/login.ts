@@ -1,5 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, OnInit, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
@@ -26,7 +26,7 @@ const STRICT_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
   templateUrl: './login.html',
   styleUrl: './login.scss'
 })
-export class Login {
+export class Login implements OnInit {
   private readonly authService = inject(AuthService);
   private readonly formBuilder = inject(FormBuilder);
   private readonly router = inject(Router);
@@ -42,6 +42,12 @@ export class Login {
     email: ['', [Validators.required, Validators.pattern(STRICT_EMAIL_PATTERN)]],
     password: ['', [Validators.required]]
   });
+
+  ngOnInit(): void {
+    if (this.authService.consumeSessionExpired()) {
+      this.errorMessage.set('Your session expired. Sign in again.');
+    }
+  }
 
   submitEmail(): void {
     if (this.isSubmitting()) {

@@ -14,6 +14,7 @@ import {
 
 const TOKEN_KEY = 'sopforge_token';
 const USER_KEY = 'sopforge_user';
+const SESSION_EXPIRED_KEY = 'sopforge_session_expired';
 
 @Injectable({
   providedIn: 'root'
@@ -24,7 +25,10 @@ export class AuthService {
 
   readonly token = this.tokenState.asReadonly();
   readonly currentUser = this.userState.asReadonly();
-  readonly isAuthenticated = computed(() => Boolean(this.tokenState()));
+  readonly isAuthenticated = computed(() => {
+    const token = this.tokenState();
+    return Boolean(token) && !this.isTokenExpired(token!);
+  });
 
   constructor(
     private readonly http: HttpClient,
@@ -46,11 +50,34 @@ export class AuthService {
   }
 
   logout(): void {
+    this.clearSession();
+    void this.router.navigateByUrl('/login');
+  }
+
+  expireSession(redirect = true): void {
+    if (!this.tokenState()) {
+      return;
+    }
+
+    this.clearSession();
+    sessionStorage.setItem(SESSION_EXPIRED_KEY, 'true');
+
+    if (redirect) {
+      void this.router.navigateByUrl('/login');
+    }
+  }
+
+  consumeSessionExpired(): boolean {
+    const sessionExpired = sessionStorage.getItem(SESSION_EXPIRED_KEY) === 'true';
+    sessionStorage.removeItem(SESSION_EXPIRED_KEY);
+    return sessionExpired;
+  }
+
+  private clearSession(): void {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     this.tokenState.set(null);
     this.userState.set(null);
-    void this.router.navigateByUrl('/login');
   }
 
   private storeSession(response: AuthResponse): void {
@@ -72,6 +99,23 @@ export class AuthService {
     } catch {
       localStorage.removeItem(USER_KEY);
       return null;
+    }
+  }
+
+  private isTokenExpired(token: string): boolean {
+    try {
+      const payloadSegment = token.split('.')[1];
+
+      if (!payloadSegment) {
+        return true;
+      }
+
+      const normalizedPayload = payloadSegment.replace(/-/g, '+').replace(/_/g, '/');
+      const paddedPayload = normalizedPayload.padEnd(Math.ceil(normalizedPayload.length / 4) * 4, '=');
+      const payload = JSON.parse(atob(paddedPayload)) as { exp?: number };
+      return typeof payload.exp !== 'number' || payload.exp * 1000 <= Date.now();
+    } catch {
+      return true;
     }
   }
 }

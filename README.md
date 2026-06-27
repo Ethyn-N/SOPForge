@@ -309,6 +309,13 @@ cd frontend
 npm.cmd run build
 ```
 
+Run frontend unit and component tests:
+
+```powershell
+cd frontend
+npm.cmd test -- --watch=false
+```
+
 ## Roadmap
 
 ### Frontend Next
@@ -324,7 +331,7 @@ npm.cmd run build
 - Add role-aware UI states
 - Add loading skeletons and empty states
 - Add better toast/alert system
-- Add frontend tests
+- Expand frontend tests as new workflows are added
 
 ### Backend Next
 
