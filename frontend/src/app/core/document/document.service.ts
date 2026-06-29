@@ -35,9 +35,24 @@ export class DocumentService {
     );
   }
 
+  downloadCompanyDocuments(companyId: number, documentIds: number[]): Observable<Blob> {
+    return this.http.post(
+      `${API_BASE_URL}/companies/${companyId}/documents/bulk-download`,
+      { documentIds },
+      { responseType: 'blob' }
+    );
+  }
+
   deleteCompanyDocument(companyId: number, documentId: number): Observable<void> {
     return this.http.delete<void>(
       `${API_BASE_URL}/companies/${companyId}/documents/${documentId}`
+    );
+  }
+
+  deleteCompanyDocuments(companyId: number, documentIds: number[]): Observable<void> {
+    return this.http.post<void>(
+      `${API_BASE_URL}/companies/${companyId}/documents/bulk-delete`,
+      { documentIds }
     );
   }
 }

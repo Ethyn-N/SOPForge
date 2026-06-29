@@ -24,6 +24,10 @@ public class User implements UserDetails {
     private Long id;
 
     @Setter
+    @Column(nullable = false)
+    private String name;
+
+    @Setter
     @Column(nullable = false, unique = true)
     private String email;
 
@@ -45,6 +49,11 @@ public class User implements UserDetails {
     private LocalDateTime createdAt;
 
     public User(String email, String password) {
+        this(email == null ? "User" : email.split("@", 2)[0], email, password);
+    }
+
+    public User(String name, String email, String password) {
+        this.name = name;
         this.email = email;
         this.password = password;
         this.role = UserRole.USER;

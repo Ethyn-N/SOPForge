@@ -64,6 +64,7 @@ export class Login implements OnInit {
 
     this.authService.checkEmail(this.form.controls.email.value).subscribe({
       next: (response) => {
+        this.errorMessage.set(null);
         this.checkedEmail.set(response.email);
         this.form.controls.email.setValue(response.email);
         this.step.set(response.registered ? 'password' : 'new-account');

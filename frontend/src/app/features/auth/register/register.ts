@@ -34,10 +34,14 @@ export class Register implements OnInit {
   readonly errorMessage = signal<string | null>(null);
   readonly successMessage = signal<string | null>(null);
   readonly submittedEmailError = signal<string | null>(null);
+  readonly submittedFirstNameError = signal<string | null>(null);
+  readonly submittedLastNameError = signal<string | null>(null);
   readonly submittedPasswordError = signal<string | null>(null);
   readonly submittedConfirmPasswordError = signal<string | null>(null);
 
   readonly form = this.formBuilder.nonNullable.group({
+    firstName: ['', [Validators.required, Validators.maxLength(50)]],
+    lastName: ['', [Validators.required, Validators.maxLength(50)]],
     email: ['', [Validators.required, Validators.pattern(STRICT_EMAIL_PATTERN)]],
     password: ['', [Validators.required, Validators.minLength(8)]],
     confirmPassword: ['', [Validators.required]]
@@ -67,6 +71,20 @@ export class Register implements OnInit {
       return 'Enter a valid email address.';
     }
 
+    return null;
+  }
+
+  private getFirstNameError(): string | null {
+    const errors = this.form.controls.firstName.errors;
+    if (errors?.['required']) return 'First name is required.';
+    if (errors?.['maxlength']) return 'First name must be 50 characters or fewer.';
+    return null;
+  }
+
+  private getLastNameError(): string | null {
+    const errors = this.form.controls.lastName.errors;
+    if (errors?.['required']) return 'Last name is required.';
+    if (errors?.['maxlength']) return 'Last name must be 50 characters or fewer.';
     return null;
   }
 
@@ -110,10 +128,14 @@ export class Register implements OnInit {
     }
 
     this.submittedEmailError.set(this.getEmailError());
+    this.submittedFirstNameError.set(this.getFirstNameError());
+    this.submittedLastNameError.set(this.getLastNameError());
     this.submittedPasswordError.set(this.getPasswordError());
     this.submittedConfirmPasswordError.set(this.getConfirmPasswordError());
 
     if (
+      this.submittedFirstNameError() ||
+      this.submittedLastNameError() ||
       this.submittedEmailError() ||
       this.submittedPasswordError() ||
       this.submittedConfirmPasswordError()
@@ -125,13 +147,14 @@ export class Register implements OnInit {
     this.errorMessage.set(null);
     this.successMessage.set(null);
     const request = {
+      name: `${this.form.controls.firstName.value.trim()} ${this.form.controls.lastName.value.trim()}`,
       email: this.form.controls.email.value,
       password: this.form.controls.password.value
     };
 
     this.authService.register(request).subscribe({
       next: () => {
-        this.authService.login(request).subscribe({
+        this.authService.login({ email: request.email, password: request.password }).subscribe({
           next: () => void this.router.navigateByUrl('/dashboard'),
           error: (error) => {
             this.errorMessage.set(this.getRegisterErrorMessage(error));

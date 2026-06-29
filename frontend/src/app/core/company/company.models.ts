@@ -16,6 +16,7 @@ export interface CompanyMember {
   companyId: number;
   companyName: string;
   userId: number;
+  name: string;
   email: string;
   role: CompanyRole;
   createdAt: string;

@@ -26,6 +26,14 @@ public class DocumentChunkService {
     private static final int CHUNK_SIZE = 1200;
     private static final int CHUNK_OVERLAP = 200;
     private static final int MAX_CHUNKS_FOR_AI = 8;
+    private static final int MAX_CONTROL_CHUNKS_FOR_AI = 3;
+    private static final Pattern CONTROL_EVIDENCE_PATTERN = Pattern.compile(
+            "\\b(danger|warning|caution|hazard|emergency|must|required|shall|never|do not|only by|" +
+                    "before starting|before servicing|verify|inspect|lockout|tagout|ppe|protective equipment|" +
+                    "allergen|contamination|sanitize|sanitation|temperature|threshold|limit|maximum|minimum|" +
+                    "stop work|out of service|report|escalate|record|document|checklist|sign-off|approval)\\b",
+            Pattern.CASE_INSENSITIVE
+    );
 
     private final DocumentChunkRepository documentChunkRepository;
 
@@ -132,18 +140,32 @@ public class DocumentChunkService {
                 .sorted(Comparator.comparingInt(RelevanceChunk::score).reversed()
                         .thenComparing(Comparator.comparingInt(RelevanceChunk::phraseScore).reversed())
                         .thenComparing(scoredChunk -> scoredChunk.chunk().getChunkIndex()))
-                .limit(MAX_CHUNKS_FOR_AI)
-                .sorted(Comparator.comparing(scoredChunk -> scoredChunk.chunk().getChunkIndex()))
+                .limit(MAX_CHUNKS_FOR_AI - MAX_CONTROL_CHUNKS_FOR_AI)
                 .toList();
 
-        if (scoredChunks.isEmpty()) {
+        Map<Integer, RelevanceChunk> selectedChunks = new LinkedHashMap<>();
+        scoredChunks.forEach(chunk -> selectedChunks.put(chunk.chunk().getChunkIndex(), chunk));
+
+        chunks.stream()
+                .map(chunk -> new ControlChunk(chunk, controlEvidenceScore(chunk.getContent())))
+                .filter(controlChunk -> controlChunk.score() > 0)
+                .sorted(Comparator.comparingInt(ControlChunk::score).reversed()
+                        .thenComparing(controlChunk -> controlChunk.chunk().getChunkIndex()))
+                .limit(MAX_CONTROL_CHUNKS_FOR_AI)
+                .map(controlChunk -> scoreChunk(document, controlChunk.chunk(), queryContext))
+                .forEach(chunk -> selectedChunks.putIfAbsent(chunk.chunk().getChunkIndex(), chunk));
+
+        if (selectedChunks.isEmpty()) {
             return chunks.stream()
                     .limit(MAX_CHUNKS_FOR_AI)
                     .map(chunk -> new RelevanceChunk(document, chunk, 0, 0, 0, List.of(), List.of()))
                     .toList();
         }
 
-        return scoredChunks;
+        return selectedChunks.values().stream()
+                .limit(MAX_CHUNKS_FOR_AI)
+                .sorted(Comparator.comparing(chunk -> chunk.chunk().getChunkIndex()))
+                .toList();
     }
 
     private RelevanceChunk scoreChunk(Document document, DocumentChunk chunk, QueryContext queryContext) {
@@ -272,20 +294,84 @@ public class DocumentChunkService {
     private List<String> splitIntoChunks(String text) {
         String normalizedText = text.replace("\r\n", "\n").trim();
         List<String> chunks = new ArrayList<>();
-        int start = 0;
+        String[] blocks = normalizedText.split("\\n\\s*\\n");
+        StringBuilder currentChunk = new StringBuilder();
 
-        while (start < normalizedText.length()) {
-            int end = Math.min(start + CHUNK_SIZE, normalizedText.length());
-            chunks.add(normalizedText.substring(start, end).trim());
-
-            if (end == normalizedText.length()) {
-                break;
+        for (String block : blocks) {
+            String trimmedBlock = block.trim();
+            if (trimmedBlock.isEmpty()) {
+                continue;
             }
 
-            start = Math.max(end - CHUNK_OVERLAP, start + 1);
+            if (trimmedBlock.length() > CHUNK_SIZE) {
+                flushChunk(chunks, currentChunk);
+                splitLongBlock(trimmedBlock, chunks);
+                continue;
+            }
+
+            if (!currentChunk.isEmpty() && currentChunk.length() + 2 + trimmedBlock.length() > CHUNK_SIZE) {
+                String overlap = trailingOverlap(currentChunk.toString());
+                flushChunk(chunks, currentChunk);
+                currentChunk.append(overlap);
+            }
+
+            if (!currentChunk.isEmpty()) {
+                currentChunk.append("\n\n");
+            }
+            currentChunk.append(trimmedBlock);
         }
 
+        flushChunk(chunks, currentChunk);
+
         return chunks;
+    }
+
+    private void splitLongBlock(String block, List<String> chunks) {
+        int start = 0;
+
+        while (start < block.length()) {
+            int desiredEnd = Math.min(start + CHUNK_SIZE, block.length());
+            int end = sentenceBoundary(block, start, desiredEnd);
+            chunks.add(block.substring(start, end).trim());
+
+            if (end == block.length()) {
+                break;
+            }
+            start = Math.max(end - CHUNK_OVERLAP, start + 1);
+        }
+    }
+
+    private int sentenceBoundary(String text, int start, int desiredEnd) {
+        if (desiredEnd == text.length()) {
+            return desiredEnd;
+        }
+
+        int boundary = text.lastIndexOf(". ", desiredEnd);
+        return boundary > start + CHUNK_SIZE / 2 ? boundary + 1 : desiredEnd;
+    }
+
+    private String trailingOverlap(String value) {
+        if (value.length() <= CHUNK_OVERLAP) {
+            return value;
+        }
+        return value.substring(value.length() - CHUNK_OVERLAP).trim();
+    }
+
+    private void flushChunk(List<String> chunks, StringBuilder chunk) {
+        if (!chunk.isEmpty()) {
+            chunks.add(chunk.toString().trim());
+            chunk.setLength(0);
+        }
+    }
+
+    private int controlEvidenceScore(String content) {
+        Matcher matcher = CONTROL_EVIDENCE_PATTERN.matcher(content == null ? "" : content);
+        int score = 0;
+
+        while (matcher.find()) {
+            score++;
+        }
+        return score;
     }
 
     private String joinChunks(List<DocumentChunk> chunks) {
@@ -322,6 +408,9 @@ public class DocumentChunkService {
     }
 
     private record QueryTerm(String value, int weight) {
+    }
+
+    private record ControlChunk(DocumentChunk chunk, int score) {
     }
 
     public record RelevancePreview(List<String> queryTerms, List<String> queryPhrases, List<RelevanceChunk> chunks) {

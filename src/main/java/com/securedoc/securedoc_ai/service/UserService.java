@@ -38,6 +38,12 @@ public class UserService {
     private final JwtService jwtService;
 
     public UserResponse registerUser(RegisterRequest request) {
+        if (request == null
+                || request.getName() == null
+                || request.getName().isBlank()
+                || request.getName().trim().length() > 101) {
+            throw new BadRequestException(REGISTRATION_FAILED_MESSAGE);
+        }
         if (isInvalidEmail(request.getEmail())) {
             throw new BadRequestException(REGISTRATION_FAILED_MESSAGE);
         }
@@ -56,6 +62,7 @@ public class UserService {
         String hashedPassword = passwordEncoder.encode(request.getPassword());
 
         User user = new User(
+                request.getName().trim(),
                 normalizedEmail,
                 hashedPassword
         );
@@ -102,6 +109,7 @@ public class UserService {
         return new AuthResponse(
                 token,
                 user.getId(),
+                user.getName(),
                 user.getEmail(),
                 user.getRole(),
                 "Login successful"

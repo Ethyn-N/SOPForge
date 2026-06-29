@@ -29,7 +29,7 @@ class OllamaSopGeneratorTest {
 
     @Test
     void generateParsesJsonWhenModelWrapsResponseInMarkdown() throws IOException {
-        startOllamaStub(List.of("""
+        startOllamaStub(List.of(evidenceResponse(), """
                 {
                   "message": {
                     "role": "assistant",
@@ -51,6 +51,7 @@ class OllamaSopGeneratorTest {
     @Test
     void generateRepairsInvalidJsonResponse() throws IOException {
         startOllamaStub(List.of(
+                evidenceResponse(),
                 """
                         {
                           "message": {
@@ -80,6 +81,7 @@ class OllamaSopGeneratorTest {
     @Test
     void generateUsesRequestedTitleWhenModelOmitsTitle() throws IOException {
         startOllamaStub(List.of(
+                evidenceResponse(),
                 """
                         {
                           "message": {
@@ -103,6 +105,7 @@ class OllamaSopGeneratorTest {
     @Test
     void generateUsesDefaultsWhenModelOmitsMetadataFields() throws IOException {
         startOllamaStub(List.of(
+                evidenceResponse(),
                 """
                         {
                           "message": {
@@ -138,6 +141,17 @@ class OllamaSopGeneratorTest {
             }
         });
         httpServer.start();
+    }
+
+    private String evidenceResponse() {
+        return """
+                {
+                  "message": {
+                    "role": "assistant",
+                    "content": "{\\"requirements\\":[{\\"subject\\":\\"Server\\",\\"phase\\":\\"operation\\",\\"type\\":\\"action\\",\\"instruction\\":\\"Follow the documented service process.\\",\\"condition\\":\\"During service\\",\\"acceptanceCriteria\\":\\"\\",\\"sourceFile\\":\\"server.pdf\\",\\"sourceLocation\\":\\"Chunk 0\\"}],\\"conflicts\\":[],\\"unsupportedSections\\":[]}"
+                  }
+                }
+                """;
     }
 
     private AiProperties aiProperties() {

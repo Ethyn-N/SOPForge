@@ -29,12 +29,18 @@ public class OllamaSopGenerator implements AiSopGenerator {
         RestClient restClient = RestClient.builder()
                 .baseUrl(aiProperties.getBaseUrl())
                 .build();
+        EvidenceBundle evidence = extractEvidence(
+                restClient,
+                documents,
+                requestedTitle,
+                instructions
+        );
 
         OllamaChatRequest request = new OllamaChatRequest(
                 aiProperties.getModel(),
                 List.of(
                         new OllamaMessage("system", systemPrompt()),
-                        new OllamaMessage("user", userPrompt(documents, requestedTitle, instructions, user))
+                        new OllamaMessage("user", userPrompt(evidence, requestedTitle, instructions, user))
                 ),
                 responseSchema(),
                 false,
@@ -58,23 +64,99 @@ public class OllamaSopGenerator implements AiSopGenerator {
         }
     }
 
+    private EvidenceBundle extractEvidence(
+            RestClient restClient,
+            List<Document> documents,
+            String requestedTitle,
+            String instructions
+    ) {
+        OllamaChatRequest request = new OllamaChatRequest(
+                aiProperties.getModel(),
+                List.of(
+                        new OllamaMessage("system", evidenceSystemPrompt()),
+                        new OllamaMessage("user", evidenceUserPrompt(
+                                documents,
+                                requestedTitle,
+                                instructions
+                        ))
+                ),
+                evidenceSchema(),
+                false,
+                ollamaOptions()
+        );
+
+        try {
+            return parseEvidence(callOllama(restClient, request));
+        } catch (RestClientException exception) {
+            throw new IllegalStateException("AI evidence extraction failed. Make sure Ollama is running.");
+        } catch (JsonProcessingException | InvalidEvidenceException exception) {
+            log.warn("Ollama returned invalid evidence JSON. Problem: {}", exception.getMessage());
+            throw new IllegalStateException("AI could not extract reliable evidence from the selected documents.");
+        }
+    }
+
+    private String evidenceSystemPrompt() {
+        return """
+                Extract factual SOP requirements from business documents.
+                Return exactly one JSON object matching the provided schema.
+                Do not write an SOP and do not include markdown or commentary.
+                Extract each requirement separately and preserve its subject, applicability, mandatory language,
+                conditions, limits, timing, acceptance criteria, and source location.
+                Treat danger, warning, caution, notice, must, shall, required, never, and do not statements as controls.
+                Do not combine requirements for different products, roles, locations, or processes.
+                Do not infer missing facts.
+                Record contradictions in conflicts and missing essential SOP categories in unsupportedSections.
+                """;
+    }
+
+    private String evidenceUserPrompt(
+            List<Document> documents,
+            String requestedTitle,
+            String instructions
+    ) {
+        return """
+                Extract only evidence relevant to this requested SOP.
+
+                Requested title: %s
+                User instructions: %s
+
+                For every requirement, populate:
+                - subject: applicable product, role, process, or location
+                - phase: receiving, preparation, installation, operation, maintenance, shutdown, verification, or other
+                - type: prerequisite, safety, action, acceptance criteria, frequency, record, escalation, or other
+                - instruction: the supported requirement without weakening mandatory language
+                - condition: when or under what circumstances it applies
+                - acceptanceCriteria: exact threshold, measurement, expected state, or empty string
+                - sourceFile: exact source file name
+                - sourceLocation: Page N when available, otherwise Chunk N
+
+                Selected source evidence:
+                %s
+                """.formatted(
+                displayValue(requestedTitle),
+                displayValue(instructions),
+                sourceDocumentsText(documents)
+        );
+    }
+
     private String systemPrompt() {
         return """
-                You generate Standard Operating Procedures for business documents.
+                You generate evidence-grounded Standard Operating Procedures for any business domain.
                 Return exactly one JSON object with these string fields:
                 title, purpose, scope, procedure, roles.
                 Do not include markdown or extra commentary.
                 Do not wrap the JSON in backticks.
                 Escape newlines inside JSON string values as \\n.
-                The procedure field must be a detailed numbered list, not a short paragraph.
-                Include at least 8 action-oriented steps when the source document has enough detail.
-                Each procedure step should explain what to do, not only name a responsibility.
+                The procedure field must contain a complete, sectioned SOP, not a summary or list of facts.
                 Use only facts supported by the extracted document text.
-                Do not invent timing, seating, customer greeting, inventory, or coordination details unless the source document says them.
+                Preserve mandatory language, conditions, warnings, thresholds, intervals, and escalation requirements.
+                Never combine unrelated products, roles, locations, or processes into one linear sequence.
+                Never invent missing operational or safety details.
+                When a necessary SOP section is unsupported, label it "Not specified in selected sources - review required."
                 """;
     }
 
-    private String userPrompt(List<Document> documents, String requestedTitle, String instructions, User user) {
+    private String userPrompt(EvidenceBundle evidence, String requestedTitle, String instructions, User user) {
         return """
                 Create a clear, professional SOP from the selected uploaded document sources.
 
@@ -87,30 +169,47 @@ public class OllamaSopGenerator implements AiSopGenerator {
                   "title": "string",
                   "purpose": "string",
                   "scope": "string",
-                  "procedure": "1. First action step.\\n2. Second action step.\\n3. Continue with detailed action steps.",
+                  "procedure": "APPLICABILITY\\n...\\n\\nPREREQUISITES\\n...\\n\\nSAFETY AND CONTROLS\\n...\\n\\nPROCEDURE\\n1. ...\\n\\nACCEPTANCE CRITERIA\\n...\\n\\nRECORDS\\n...\\n\\nEXCEPTIONS AND ESCALATION\\n...\\n\\nSOURCES\\n...",
                   "roles": "string"
                 }
 
                 Procedure requirements:
-                - Write the procedure as a numbered list.
-                - Prefer 8 to 15 steps when the document has enough information.
-                - Start each step with an action verb.
-                - Include operational details from the source document.
-                - Do not compress the procedure into one paragraph.
+                - Use these headings in this order: APPLICABILITY, PREREQUISITES, SAFETY AND CONTROLS, PROCEDURE, ACCEPTANCE CRITERIA, RECORDS, EXCEPTIONS AND ESCALATION, SOURCES.
+                - Under PROCEDURE, use numbered, action-oriented steps with enough detail to perform and verify the work.
+                - Use subsection headings when sources describe different products, roles, phases, or processes.
+                - Keep each instruction under the product or process to which it applies.
+                - Do not create a false sequence from unrelated source facts.
+                - Identify supported qualifications, authorization, tools, equipment, PPE, sanitation, and prerequisites.
+                - Treat DANGER, WARNING, CAUTION, NOTICE, must, shall, required, never, and do not statements as mandatory controls.
+                - Preserve exact limits, measurements, waiting periods, frequencies, temperatures, and pass/fail criteria.
+                - Include supported pre-work checks, preparation, execution, verification, restoration, and closeout steps.
+                - State supported stop-work conditions and who must be notified.
+                - State supported records, checklists, readings, approvals, and sign-offs that must be retained.
+                - Cite requirements as [Source: file name, Page N] when a page marker is available; otherwise use [Source: file name, Chunk N].
                 - If the document is a job description, convert responsibilities into actual daily operating steps.
                 - Do not add responsibilities that are not present in the source document.
-                - If a useful SOP detail is missing from the source document, omit it instead of guessing.
-                - When multiple source documents are provided, synthesize overlapping information into one coherent SOP.
+                - If a required section is unsupported, write "Not specified in selected sources - review required" instead of guessing.
+                - Synthesize only genuinely overlapping instructions from multiple documents.
+                - If documents are unrelated, separate them into clearly labeled subsections or exclude irrelevant material.
+                - If sources conflict, describe the conflict under EXCEPTIONS AND ESCALATION instead of choosing one silently.
                 - Do not mix unrelated roles. If instructions narrow the topic, prioritize source facts relevant to those instructions.
 
-                Extracted document sources:
+                Validated structured evidence:
                 %s
                 """.formatted(
                 displayValue(requestedTitle),
                 user.getEmail(),
                 displayValue(instructions),
-                sourceDocumentsText(documents)
+                evidenceJson(evidence)
         );
+    }
+
+    private String evidenceJson(EvidenceBundle evidence) {
+        try {
+            return objectMapper.writeValueAsString(evidence);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Extracted evidence could not be prepared for SOP generation.");
+        }
     }
 
     private String sourceDocumentsText(List<Document> documents) {
@@ -204,6 +303,62 @@ public class OllamaSopGenerator implements AiSopGenerator {
         return schema;
     }
 
+    private Map<String, Object> evidenceSchema() {
+        Map<String, Object> requirementProperties = new LinkedHashMap<>();
+        for (String field : List.of(
+                "subject",
+                "phase",
+                "type",
+                "instruction",
+                "condition",
+                "acceptanceCriteria",
+                "sourceFile",
+                "sourceLocation"
+        )) {
+            requirementProperties.put(field, Map.of("type", "string"));
+        }
+
+        Map<String, Object> requirementSchema = Map.of(
+                "type", "object",
+                "additionalProperties", false,
+                "required", List.copyOf(requirementProperties.keySet()),
+                "properties", requirementProperties
+        );
+        Map<String, Object> schema = new LinkedHashMap<>();
+        schema.put("type", "object");
+        schema.put("additionalProperties", false);
+        schema.put("required", List.of("requirements", "conflicts", "unsupportedSections"));
+        schema.put("properties", Map.of(
+                "requirements", Map.of("type", "array", "items", requirementSchema),
+                "conflicts", Map.of("type", "array", "items", Map.of("type", "string")),
+                "unsupportedSections", Map.of("type", "array", "items", Map.of("type", "string"))
+        ));
+        return schema;
+    }
+
+    private EvidenceBundle parseEvidence(String content) throws JsonProcessingException {
+        EvidenceBundle evidence = objectMapper.readValue(extractJsonObject(content), EvidenceBundle.class);
+
+        if (evidence.requirements() == null || evidence.requirements().isEmpty()) {
+            throw new InvalidEvidenceException("Evidence extraction returned no requirements.");
+        }
+
+        List<EvidenceRequirement> requirements = evidence.requirements().stream()
+                .filter(requirement -> requirement != null
+                        && !isBlank(requirement.instruction())
+                        && !isBlank(requirement.sourceFile()))
+                .toList();
+        if (requirements.isEmpty()) {
+            throw new InvalidEvidenceException("Evidence extraction returned no supported requirements.");
+        }
+
+        return new EvidenceBundle(
+                requirements,
+                evidence.conflicts() == null ? List.of() : evidence.conflicts(),
+                evidence.unsupportedSections() == null ? List.of() : evidence.unsupportedSections()
+        );
+    }
+
     private Map<String, Object> ollamaOptions() {
         return Map.of(
                 "temperature", 0.1,
@@ -218,6 +373,7 @@ public class OllamaSopGenerator implements AiSopGenerator {
                 title, purpose, scope, procedure, roles.
                 All five fields are required and must be non-empty strings.
                 Escape newlines inside string values as \\n.
+                Preserve all safety controls, applicability labels, limits, citations, and required SOP sections from the original output.
                 Do not include markdown, comments, or explanation.
                 """;
     }
@@ -386,9 +542,35 @@ public class OllamaSopGenerator implements AiSopGenerator {
     private record OllamaChatResponse(OllamaMessage message) {
     }
 
+    private record EvidenceBundle(
+            List<EvidenceRequirement> requirements,
+            List<String> conflicts,
+            List<String> unsupportedSections
+    ) {
+    }
+
+    private record EvidenceRequirement(
+            String subject,
+            String phase,
+            String type,
+            String instruction,
+            String condition,
+            String acceptanceCriteria,
+            String sourceFile,
+            String sourceLocation
+    ) {
+    }
+
     private static class InvalidGeneratedSopException extends RuntimeException {
 
         InvalidGeneratedSopException(String message) {
+            super(message);
+        }
+    }
+
+    private static class InvalidEvidenceException extends RuntimeException {
+
+        InvalidEvidenceException(String message) {
             super(message);
         }
     }

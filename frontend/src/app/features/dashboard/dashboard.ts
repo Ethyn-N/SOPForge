@@ -52,17 +52,26 @@ export class Dashboard implements OnInit, OnDestroy {
   readonly documents = signal<Document[]>([]);
   readonly sops = signal<Sop[]>([]);
   readonly selectedCompanyId = signal<number | null>(null);
-  readonly activeView = signal<'documents' | 'sops' | 'members'>('documents');
+  readonly activeView = signal<'documents' | 'sops' | 'members' | 'settings'>('documents');
   readonly members = signal<CompanyMember[]>([]);
+  readonly memberSearch = signal('');
+  readonly memberSort = signal<'NAME' | 'ROLE'>('NAME');
+  readonly memberSortAscending = signal(true);
   readonly memberEmail = signal('');
   readonly memberRole = signal<CompanyRole>('MEMBER');
   readonly openRoleMenuMemberId = signal<number | null>(null);
+  readonly removeMemberCandidate = signal<CompanyMember | null>(null);
   readonly isLoadingMembers = signal(false);
   readonly isSavingMember = signal(false);
   readonly sopView = signal<'library' | 'generate'>('library');
   readonly sopFilter = signal<'ALL' | 'DRAFT' | 'PENDING_REVIEW' | 'APPROVED' | 'ARCHIVED'>('ALL');
   readonly showCompanyCreator = signal(false);
   readonly selectedDocumentIds = signal<Set<number>>(new Set());
+  readonly bulkSelectedDocumentIds = signal<Set<number>>(new Set());
+  readonly bulkActionsOpen = signal(false);
+  readonly bulkDeleteCandidates = signal<Document[] | null>(null);
+  readonly documentPreviewQueue = signal<Document[]>([]);
+  readonly documentSearch = signal('');
   readonly companyName = signal('');
   readonly selectedFileName = signal('');
   readonly sopTitle = signal('');
@@ -97,6 +106,8 @@ export class Dashboard implements OnInit, OnDestroy {
   readonly isUploadingDocument = signal(false);
   readonly isLoadingDocumentPreview = signal(false);
   readonly isDeletingDocument = signal(false);
+  readonly isBulkDownloading = signal(false);
+  readonly isBulkDeleting = signal(false);
   readonly isLoadingSops = signal(false);
   readonly isPreviewingRelevance = signal(false);
   readonly isGeneratingSop = signal(false);
@@ -148,6 +159,57 @@ export class Dashboard implements OnInit, OnDestroy {
     return this.documents().filter((document) => selectedIds.has(document.id));
   });
 
+  readonly bulkSelectedDocuments = computed(() => {
+    const selectedIds = this.bulkSelectedDocumentIds();
+    return this.documents().filter((document) => selectedIds.has(document.id));
+  });
+
+  readonly bulkSopSourceCount = computed(() =>
+    this.bulkSelectedDocuments().filter((document) => document.extractionStatus === 'SUCCESS').length
+  );
+
+  readonly allFilteredDocumentsSelected = computed(() => {
+    const filtered = this.filteredDocuments();
+    const selectedIds = this.bulkSelectedDocumentIds();
+    return filtered.length > 0 && filtered.every((document) => selectedIds.has(document.id));
+  });
+
+  readonly someFilteredDocumentsSelected = computed(() => {
+    const filtered = this.filteredDocuments();
+    const selectedIds = this.bulkSelectedDocumentIds();
+    return filtered.some((document) => selectedIds.has(document.id))
+      && !filtered.every((document) => selectedIds.has(document.id));
+  });
+
+  readonly documentPreviewPosition = computed(() => {
+    const previewId = this.documentPreview()?.document.id;
+    return this.documentPreviewQueue().findIndex((document) => document.id === previewId);
+  });
+
+  readonly filteredDocuments = computed(() => {
+    const query = this.documentSearch().trim().toLowerCase();
+    if (!query) return this.documents();
+    return this.documents().filter((document) =>
+      document.originalFileName.toLowerCase().includes(query)
+      || document.fileType.toLowerCase().includes(query)
+      || document.extractionStatus.toLowerCase().includes(query)
+    );
+  });
+
+  readonly filteredMembers = computed(() => {
+    const query = this.memberSearch().trim().toLowerCase();
+    const members = query
+      ? this.members().filter((member) =>
+          member.name.toLowerCase().includes(query)
+          || member.email.toLowerCase().includes(query)
+          || member.role.toLowerCase().includes(query)
+        )
+      : [...this.members()];
+    const field = this.memberSort() === 'NAME' ? 'name' : 'role';
+    const direction = this.memberSortAscending() ? 1 : -1;
+    return members.sort((left, right) => left[field].localeCompare(right[field]) * direction);
+  });
+
   readonly filteredSops = computed(() => {
     const filter = this.sopFilter();
     return filter === 'ALL'
@@ -167,14 +229,20 @@ export class Dashboard implements OnInit, OnDestroy {
   private readonly documentCache = new Map<number, Document[]>();
   private readonly sopCache = new Map<number, Sop[]>();
   private generationPollingSubscription?: Subscription;
+  private documentPollingSubscription?: Subscription;
 
   ngOnInit(): void {
     this.loadCompanies();
     this.startPendingGenerationPolling();
+    this.documentPollingSubscription = timer(15000, 15000).subscribe(() => {
+      const companyId = this.selectedCompanyId();
+      if (companyId && !this.isUploadingDocument()) this.refreshDocumentsInBackground(companyId);
+    });
   }
 
   ngOnDestroy(): void {
     this.generationPollingSubscription?.unsubscribe();
+    this.documentPollingSubscription?.unsubscribe();
     this.noticeAutoDismissEffect.destroy();
 
     if (this.noticeDismissTimer) {
@@ -213,9 +281,11 @@ export class Dashboard implements OnInit, OnDestroy {
             this.showCachedCompanyData(nextCompanyId);
             this.loadDocuments(nextCompanyId);
             this.loadSops(nextCompanyId);
+            this.loadMembers(nextCompanyId);
           } else {
             this.documents.set([]);
             this.sops.set([]);
+            this.members.set([]);
           }
         },
         error: (error) => this.errorMessage.set(this.messageFromError(error))
@@ -244,6 +314,7 @@ export class Dashboard implements OnInit, OnDestroy {
           this.documentCache.set(company.id, []);
           this.sopCache.set(company.id, []);
           this.resetCompanyWorkspace();
+          this.loadMembers(company.id);
           this.showCompanyCreator.set(false);
           this.successMessage.set(`${company.name} was created.`);
         },
@@ -279,6 +350,7 @@ export class Dashboard implements OnInit, OnDestroy {
             this.showCachedCompanyData(nextCompanyId);
             this.loadDocuments(nextCompanyId);
             this.loadSops(nextCompanyId);
+            this.loadMembers(nextCompanyId);
           } else {
             this.resetCompanyWorkspace();
           }
@@ -299,9 +371,10 @@ export class Dashboard implements OnInit, OnDestroy {
     this.showCachedCompanyData(companyId);
     this.loadDocuments(companyId);
     this.loadSops(companyId);
+    this.loadMembers(companyId);
   }
 
-  selectCompanyFromControl(value: string): void {
+  selectCompanyFromControl(value: string | number): void {
     const companyId = Number(value);
 
     if (Number.isFinite(companyId)) {
@@ -320,8 +393,10 @@ export class Dashboard implements OnInit, OnDestroy {
 
   showMembers(): void {
     this.activeView.set('members');
-    const companyId = this.selectedCompanyId();
-    if (companyId) this.loadMembers(companyId);
+  }
+
+  showSettings(): void {
+    this.activeView.set('settings');
   }
 
   addMember(): void {
@@ -335,6 +410,7 @@ export class Dashboard implements OnInit, OnDestroy {
         next: (member) => {
           this.members.update((members) => [...members, member]);
           this.memberEmail.set('');
+          this.memberRole.set('MEMBER');
           this.successMessage.set(`${member.email} was added.`);
         },
         error: (error) => this.errorMessage.set(this.messageFromError(error))
@@ -357,11 +433,30 @@ export class Dashboard implements OnInit, OnDestroy {
     this.openRoleMenuMemberId.update((openId) => openId === memberId ? null : memberId);
   }
 
-  removeMember(member: CompanyMember): void {
+  sortMembers(field: 'NAME' | 'ROLE'): void {
+    if (this.memberSort() === field) {
+      this.memberSortAscending.update((ascending) => !ascending);
+    } else {
+      this.memberSort.set(field);
+      this.memberSortAscending.set(true);
+    }
+  }
+
+  requestMemberRemoval(member: CompanyMember): void {
+    this.openRoleMenuMemberId.set(null);
+    this.removeMemberCandidate.set(member);
+  }
+
+  confirmMemberRemoval(): void {
+    const member = this.removeMemberCandidate();
     const companyId = this.selectedCompanyId();
-    if (!companyId) return;
+    if (!companyId || !member) return;
     this.companyService.removeCompanyMember(companyId, member.id).subscribe({
-      next: () => this.members.update((members) => members.filter((item) => item.id !== member.id)),
+      next: () => {
+        this.members.update((members) => members.filter((item) => item.id !== member.id));
+        this.removeMemberCandidate.set(null);
+        this.successMessage.set(`${member.name} was removed.`);
+      },
       error: (error) => this.errorMessage.set(this.messageFromError(error))
     });
   }
@@ -371,7 +466,9 @@ export class Dashboard implements OnInit, OnDestroy {
     this.companyService.getCompanyMembers(companyId)
       .pipe(finalize(() => this.isLoadingMembers.set(false)))
       .subscribe({
-        next: (members) => this.members.set(members),
+        next: (members) => {
+          if (this.selectedCompanyId() === companyId) this.members.set(members);
+        },
         error: (error) => this.errorMessage.set(this.messageFromError(error))
       });
   }
@@ -450,14 +547,6 @@ export class Dashboard implements OnInit, OnDestroy {
       });
   }
 
-  refreshDocuments(): void {
-    const companyId = this.selectedCompanyId();
-
-    if (companyId) {
-      this.loadDocuments(companyId);
-    }
-  }
-
   toggleDocumentSelection(document: Document): void {
     if (document.extractionStatus !== 'SUCCESS') {
       return;
@@ -479,14 +568,57 @@ export class Dashboard implements OnInit, OnDestroy {
     return this.selectedDocumentIds().has(documentId);
   }
 
-  previewDocument(document: Document): void {
+  toggleBulkDocumentSelection(documentId: number): void {
+    const nextSelection = new Set(this.bulkSelectedDocumentIds());
+    nextSelection.has(documentId) ? nextSelection.delete(documentId) : nextSelection.add(documentId);
+    this.bulkSelectedDocumentIds.set(nextSelection);
+    if (!nextSelection.size) this.bulkActionsOpen.set(false);
+  }
+
+  toggleAllFilteredDocuments(selected: boolean): void {
+    const nextSelection = new Set(this.bulkSelectedDocumentIds());
+    for (const document of this.filteredDocuments()) {
+      selected ? nextSelection.add(document.id) : nextSelection.delete(document.id);
+    }
+    this.bulkSelectedDocumentIds.set(nextSelection);
+  }
+
+  clearBulkDocumentSelection(): void {
+    this.bulkSelectedDocumentIds.set(new Set());
+    this.bulkActionsOpen.set(false);
+  }
+
+  createSopFromBulkSelection(): void {
+    const sourceIds = this.bulkSelectedDocuments()
+      .filter((document) => document.extractionStatus === 'SUCCESS')
+      .map((document) => document.id);
+    this.selectedDocumentIds.set(new Set(sourceIds));
+    this.bulkActionsOpen.set(false);
+    this.showSops('generate');
+  }
+
+  previewBulkDocuments(): void {
+    const documents = this.bulkSelectedDocuments();
+    if (!documents.length) return;
+    this.bulkActionsOpen.set(false);
+    this.previewDocument(documents[0], documents);
+  }
+
+  previewAdjacentDocument(offset: number): void {
+    const queue = this.documentPreviewQueue();
+    const target = queue[this.documentPreviewPosition() + offset];
+    if (target) this.previewDocument(target, queue);
+  }
+
+  previewDocument(document: Document, queue: Document[] = [document]): void {
     const companyId = this.selectedCompanyId();
 
     if (!companyId) {
       return;
     }
 
-    this.closeDocumentPreview();
+    this.releaseDocumentPreview();
+    this.documentPreviewQueue.set(queue);
     this.isLoadingDocumentPreview.set(true);
     this.clearMessages();
 
@@ -523,6 +655,11 @@ export class Dashboard implements OnInit, OnDestroy {
   }
 
   closeDocumentPreview(): void {
+    this.releaseDocumentPreview();
+    this.documentPreviewQueue.set([]);
+  }
+
+  private releaseDocumentPreview(): void {
     const objectUrl = this.documentPreview()?.objectUrl;
 
     if (objectUrl) {
@@ -637,6 +774,66 @@ export class Dashboard implements OnInit, OnDestroy {
     });
   }
 
+  downloadBulkDocuments(): void {
+    const companyId = this.selectedCompanyId();
+    const documents = this.bulkSelectedDocuments();
+    if (!companyId || !documents.length) return;
+
+    this.bulkActionsOpen.set(false);
+    this.isBulkDownloading.set(true);
+    this.clearMessages();
+    this.documentService.downloadCompanyDocuments(companyId, documents.map((document) => document.id))
+      .pipe(finalize(() => this.isBulkDownloading.set(false)))
+      .subscribe({
+        next: (archive) => {
+          const downloadUrl = URL.createObjectURL(archive);
+          const link = window.document.createElement('a');
+          link.href = downloadUrl;
+          link.download = 'documents.zip';
+          window.document.body.appendChild(link);
+          link.click();
+          link.remove();
+          window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 0);
+        },
+        error: (error) => this.errorMessage.set(this.messageFromError(error))
+      });
+  }
+
+  requestBulkDocumentDelete(): void {
+    const documents = this.bulkSelectedDocuments();
+    if (!documents.length) return;
+    this.bulkActionsOpen.set(false);
+    this.bulkDeleteCandidates.set(documents);
+  }
+
+  confirmBulkDocumentDelete(): void {
+    const companyId = this.selectedCompanyId();
+    const documents = this.bulkDeleteCandidates();
+    if (!companyId || !documents?.length) return;
+
+    const deletedIds = new Set(documents.map((document) => document.id));
+    this.isBulkDeleting.set(true);
+    this.clearMessages();
+    this.documentService.deleteCompanyDocuments(companyId, [...deletedIds])
+      .pipe(finalize(() => this.isBulkDeleting.set(false)))
+      .subscribe({
+        next: () => {
+          this.documents.update((current) => current.filter((document) => !deletedIds.has(document.id)));
+          this.documentCache.set(companyId, this.documents());
+          this.selectedDocumentIds.update((selected) =>
+            new Set([...selected].filter((id) => !deletedIds.has(id)))
+          );
+          this.clearBulkDocumentSelection();
+          this.bulkDeleteCandidates.set(null);
+          if (this.documentPreview() && deletedIds.has(this.documentPreview()!.document.id)) {
+            this.closeDocumentPreview();
+          }
+          this.successMessage.set(`${deletedIds.size} ${deletedIds.size === 1 ? 'document was' : 'documents were'} deleted.`);
+        },
+        error: (error) => this.errorMessage.set(this.messageFromError(error))
+      });
+  }
+
   requestDocumentDelete(document: Document): void {
     this.deleteCandidate.set(document);
   }
@@ -669,6 +866,11 @@ export class Dashboard implements OnInit, OnDestroy {
           const nextSelection = new Set(this.selectedDocumentIds());
           nextSelection.delete(document.id);
           this.selectedDocumentIds.set(nextSelection);
+          this.bulkSelectedDocumentIds.update((selected) => {
+            const next = new Set(selected);
+            next.delete(document.id);
+            return next;
+          });
           this.deleteCandidate.set(null);
 
           if (this.documentPreview()?.document.id === document.id) {
@@ -802,10 +1004,28 @@ export class Dashboard implements OnInit, OnDestroy {
             this.selectedDocumentIds.update(
               (selectedIds) => new Set([...selectedIds].filter((id) => availableIds.has(id)))
             );
+            this.bulkSelectedDocumentIds.update(
+              (selectedIds) => new Set([...selectedIds].filter((id) => availableIds.has(id)))
+            );
           }
         },
         error: (error) => this.errorMessage.set(this.messageFromError(error))
       });
+  }
+
+  private refreshDocumentsInBackground(companyId: number): void {
+    this.documentService.getCompanyDocuments(companyId).subscribe({
+      next: (documents) => {
+        this.documentCache.set(companyId, documents);
+        if (this.selectedCompanyId() === companyId) {
+          this.documents.set(documents);
+          const availableIds = new Set(documents.map((document) => document.id));
+          this.bulkSelectedDocumentIds.update(
+            (selectedIds) => new Set([...selectedIds].filter((id) => availableIds.has(id)))
+          );
+        }
+      }
+    });
   }
 
   private loadSops(companyId: number): void {
@@ -871,6 +1091,10 @@ export class Dashboard implements OnInit, OnDestroy {
 
   private resetTransientState(): void {
     this.selectedDocumentIds.set(new Set());
+    this.clearBulkDocumentSelection();
+    this.bulkDeleteCandidates.set(null);
+    this.documentSearch.set('');
+    this.memberSearch.set('');
     this.closeDocumentPreview();
     this.selectedSop.set(null);
     this.deleteCandidate.set(null);

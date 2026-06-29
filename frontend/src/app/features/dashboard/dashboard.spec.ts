@@ -25,6 +25,7 @@ describe('Dashboard', () => {
   let fixture: ComponentFixture<Dashboard> | undefined;
   let companyService: {
     getCompanies: ReturnType<typeof vi.fn>;
+    getCompanyMembers: ReturnType<typeof vi.fn>;
     createCompany: ReturnType<typeof vi.fn>;
     deleteCompany: ReturnType<typeof vi.fn>;
   };
@@ -54,6 +55,7 @@ describe('Dashboard', () => {
 
     companyService = {
       getCompanies: vi.fn(() => of(companies)),
+      getCompanyMembers: vi.fn(() => of([])),
       createCompany: vi.fn(),
       deleteCompany: vi.fn()
     };
@@ -91,6 +93,7 @@ describe('Dashboard', () => {
             currentUser: signal({
               token: 'token',
               id: 7,
+              name: 'Owner User',
               email: 'owner@example.com',
               role: 'USER',
               message: 'Authenticated'
@@ -137,7 +140,7 @@ describe('Dashboard', () => {
     expect(documentService.getCompanyDocuments).toHaveBeenCalledWith(2);
   });
 
-  it('keeps a newly created workspace selected in the workspace control', () => {
+  it('keeps a newly created workspace selected in the workspace control', async () => {
     const createdCompany: Company = {
       id: 3,
       name: 'New Workspace',
@@ -151,6 +154,8 @@ describe('Dashboard', () => {
 
     dashboard.companyName.set('New Workspace');
     dashboard.createCompany();
+    fixture.detectChanges();
+    await fixture.whenStable();
     fixture.detectChanges();
 
     const workspaceSelect = (fixture.nativeElement as HTMLElement)

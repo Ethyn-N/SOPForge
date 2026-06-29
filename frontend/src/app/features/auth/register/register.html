@@ -27,6 +27,23 @@
 
     <p-card>
       <form [formGroup]="form" (ngSubmit)="submit()" class="auth-form">
+        <div class="name-row">
+          <div class="name-field">
+            <label for="firstName">First name</label>
+            <input pInputText id="firstName" type="text" formControlName="firstName" autocomplete="given-name" [invalid]="!!submittedFirstNameError()" />
+            @if (submittedFirstNameError()) {
+              <p class="field-error"><i class="pi pi-exclamation-circle" aria-hidden="true"></i><span>{{ submittedFirstNameError() }}</span></p>
+            }
+          </div>
+          <div class="name-field">
+            <label for="lastName">Last name</label>
+            <input pInputText id="lastName" type="text" formControlName="lastName" autocomplete="family-name" [invalid]="!!submittedLastNameError()" />
+            @if (submittedLastNameError()) {
+              <p class="field-error"><i class="pi pi-exclamation-circle" aria-hidden="true"></i><span>{{ submittedLastNameError() }}</span></p>
+            }
+          </div>
+        </div>
+
         <label for="email">Email</label>
         <input
           pInputText

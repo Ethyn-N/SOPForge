@@ -1,6 +1,7 @@
 package com.securedoc.securedoc_ai.controller;
 
 import com.securedoc.securedoc_ai.dto.DocumentChunkResponse;
+import com.securedoc.securedoc_ai.dto.BulkDocumentRequest;
 import com.securedoc.securedoc_ai.dto.DocumentResponse;
 import com.securedoc.securedoc_ai.dto.DocumentTextResponse;
 import com.securedoc.securedoc_ai.model.Document;
@@ -100,6 +101,36 @@ public class CompanyDocumentController {
     ) {
         Document savedDocument = documentService.uploadDocument(file, user, companyId);
         return new DocumentResponse(savedDocument);
+    }
+
+    @PostMapping(value = "/bulk-download", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<byte[]> downloadDocuments(
+            @PathVariable Long companyId,
+            @RequestBody BulkDocumentRequest request,
+            @AuthenticationPrincipal User user
+    ) {
+        byte[] archive = documentService.createDocumentArchive(request.documentIds(), companyId, user);
+
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType("application/zip"))
+                .contentLength(archive.length)
+                .cacheControl(CacheControl.noStore())
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                        .filename("documents.zip")
+                        .build()
+                        .toString())
+                .header("X-Content-Type-Options", "nosniff")
+                .body(archive);
+    }
+
+    @PostMapping(value = "/bulk-delete", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<Void> deleteDocuments(
+            @PathVariable Long companyId,
+            @RequestBody BulkDocumentRequest request,
+            @AuthenticationPrincipal User user
+    ) {
+        documentService.deleteDocuments(request.documentIds(), companyId, user);
+        return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/{id}")

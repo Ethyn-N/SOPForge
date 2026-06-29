@@ -37,6 +37,7 @@ public class AdminBootstrapRunner implements ApplicationRunner {
         User admin = existingAdmin
                 .orElseGet(() -> new User(email, ""));
 
+        admin.setName("SOPForge Admin");
         admin.setRole(UserRole.ADMIN);
         admin.setEnabled(true);
 

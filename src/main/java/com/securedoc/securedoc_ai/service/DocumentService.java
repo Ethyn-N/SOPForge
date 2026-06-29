@@ -24,12 +24,17 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.io.ByteArrayOutputStream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 @RequiredArgsConstructor
 @Service
 public class DocumentService {
 
     private static final long MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
+    private static final int MAX_BULK_DOCUMENTS = 20;
+    private static final long MAX_BULK_ARCHIVE_BYTES = 250L * 1024 * 1024;
 
     private static final Map<String, String> ALLOWED_FILE_TYPES = Map.of(
             "application/pdf", ".pdf",
@@ -68,6 +73,41 @@ public class DocumentService {
 
     public byte[] getStoredFile(Document document) {
         return fileStorageService.load(document.getStoredFileName());
+    }
+
+    public byte[] createDocumentArchive(List<Long> documentIds, Long companyId, User user) {
+        List<Document> documents = getBulkDocuments(documentIds, companyId, user, false);
+        long totalSize = documents.stream().mapToLong(Document::getFileSize).sum();
+
+        if (totalSize > MAX_BULK_ARCHIVE_BYTES) {
+            throw new BadRequestException("Selected documents must total 250 MB or less.");
+        }
+
+        try (ByteArrayOutputStream output = new ByteArrayOutputStream();
+             ZipOutputStream zip = new ZipOutputStream(output)) {
+            Set<String> entryNames = new HashSet<>();
+
+            for (Document document : documents) {
+                zip.putNextEntry(new ZipEntry(uniqueArchiveName(document.getOriginalFileName(), entryNames)));
+                zip.write(getStoredFile(document));
+                zip.closeEntry();
+            }
+            zip.finish();
+            return output.toByteArray();
+        } catch (IOException exception) {
+            throw new BadRequestException("Document archive could not be created.");
+        }
+    }
+
+    @Transactional
+    public void deleteDocuments(List<Long> documentIds, Long companyId, User user) {
+        List<Document> documents = getBulkDocuments(documentIds, companyId, user, true);
+
+        for (Document document : documents) {
+            deleteStoredFile(document);
+            documentChunkService.deleteChunks(document);
+        }
+        documentRepository.deleteAll(documents);
     }
 
     @Transactional
@@ -139,6 +179,53 @@ public class DocumentService {
 
     private void deleteStoredFile(Document document) {
         fileStorageService.delete(document.getStoredFileName());
+    }
+
+    private List<Document> getBulkDocuments(
+            List<Long> documentIds,
+            Long companyId,
+            User user,
+            boolean requireManagement
+    ) {
+        if (documentIds == null || documentIds.isEmpty()) {
+            throw new BadRequestException("Select at least one document.");
+        }
+
+        List<Long> uniqueIds = documentIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (uniqueIds.isEmpty() || uniqueIds.size() > MAX_BULK_DOCUMENTS) {
+            throw new BadRequestException("Select between 1 and 20 documents.");
+        }
+
+        Company company = requireManagement
+                ? companyService.requireCompanyRole(companyId, user, CompanyRole.OWNER, CompanyRole.ADMIN)
+                : companyService.getCompanyForUser(companyId, user);
+        Map<Long, Document> documentsById = documentRepository.findAllByIdInAndCompany(uniqueIds, company)
+                .stream()
+                .collect(java.util.stream.Collectors.toMap(Document::getId, document -> document));
+
+        if (documentsById.size() != uniqueIds.size()) {
+            throw new NotFoundException("One or more selected documents do not exist.");
+        }
+
+        return uniqueIds.stream().map(documentsById::get).toList();
+    }
+
+    private String uniqueArchiveName(String originalFileName, Set<String> usedNames) {
+        if (usedNames.add(originalFileName)) {
+            return originalFileName;
+        }
+
+        int extensionIndex = originalFileName.lastIndexOf('.');
+        String baseName = extensionIndex > 0 ? originalFileName.substring(0, extensionIndex) : originalFileName;
+        String extension = extensionIndex > 0 ? originalFileName.substring(extensionIndex) : "";
+        int copyNumber = 1;
+        String candidate;
+
+        do {
+            candidate = baseName + " (" + copyNumber++ + ")" + extension;
+        } while (!usedNames.add(candidate));
+
+        return candidate;
     }
 
     private void validateUpload(MultipartFile file) {
@@ -234,7 +321,26 @@ public class DocumentService {
 
     private String extractPdfText(byte[] fileBytes) throws IOException {
         try (PDDocument document = Loader.loadPDF(fileBytes)) {
-            return new PDFTextStripper().getText(document);
+            PDFTextStripper textStripper = new PDFTextStripper();
+            StringBuilder extractedText = new StringBuilder();
+
+            for (int pageNumber = 1; pageNumber <= document.getNumberOfPages(); pageNumber++) {
+                textStripper.setStartPage(pageNumber);
+                textStripper.setEndPage(pageNumber);
+                String pageText = textStripper.getText(document).trim();
+
+                if (!pageText.isBlank()) {
+                    if (!extractedText.isEmpty()) {
+                        extractedText.append("\n\n");
+                    }
+                    extractedText.append("[Page ")
+                            .append(pageNumber)
+                            .append("]\n")
+                            .append(pageText);
+                }
+            }
+
+            return extractedText.toString();
         }
     }
 

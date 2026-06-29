@@ -10,6 +10,7 @@ public record CompanyMemberResponse(
         Long companyId,
         String companyName,
         Long userId,
+        String name,
         String email,
         CompanyRole role,
         LocalDateTime createdAt
@@ -21,6 +22,7 @@ public record CompanyMemberResponse(
                 companyMember.getCompany().getId(),
                 companyMember.getCompany().getName(),
                 companyMember.getUser().getId(),
+                companyMember.getUser().getName(),
                 companyMember.getUser().getEmail(),
                 companyMember.getRole(),
                 companyMember.getCreatedAt()

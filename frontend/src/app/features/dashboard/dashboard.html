@@ -25,7 +25,7 @@
         <select
           name="workspace"
           aria-label="Current workspace"
-          [ngModel]="selectedCompanyId()"
+          [ngModel]="selectedCompanyId()?.toString()"
           (ngModelChange)="selectCompanyFromControl($event)"
         >
           @for (company of companies(); track company.id) {
@@ -33,14 +33,7 @@
           }
         </select>
         @if (selectedCompany(); as company) {
-          <div class="workspace-meta">
-            <span class="workspace-role">{{ company.role }}</span>
-            @if (company.role === 'OWNER') {
-              <button type="button" class="workspace-delete" title="Delete workspace" aria-label="Delete workspace" (click)="requestCompanyDelete()">
-                <i class="pi pi-trash"></i>
-              </button>
-            }
-          </div>
+          <span class="workspace-role">{{ company.role }}</span>
         }
       } @else {
         <button type="button" class="empty-workspace" (click)="toggleCompanyCreator()">
@@ -124,6 +117,12 @@
         <span>Members</span>
         <small>{{ members().length }}</small>
       </button>
+      @if (selectedCompany()?.role === 'OWNER' || selectedCompany()?.role === 'ADMIN') {
+        <button type="button" class="nav-item" [class.active]="activeView() === 'settings'" (click)="showSettings()">
+          <i class="pi pi-cog"></i>
+          <span>Settings</span>
+        </button>
+      }
     </nav>
 
     @if (pendingGeneration(); as generation) {
@@ -140,10 +139,10 @@
 
     @if (user(); as currentUser) {
       <section class="account-panel">
-        <span class="account-avatar">{{ currentUser.email.charAt(0).toUpperCase() }}</span>
+        <span class="account-avatar">{{ currentUser.name.charAt(0).toUpperCase() }}</span>
         <div>
-          <strong [title]="currentUser.email">{{ currentUser.email }}</strong>
-          <small>{{ currentUser.role }}</small>
+          <strong [title]="currentUser.name">{{ currentUser.name }}</strong>
+          <small [title]="currentUser.email">{{ currentUser.email }}</small>
         </div>
         <button
           type="button"
@@ -162,52 +161,8 @@
     <header class="topbar">
       <div>
         <p>{{ selectedCompany()?.name || 'SOPForge' }}</p>
-        <h1>{{ activeView() === 'documents' ? 'Documents' : activeView() === 'members' ? 'Members' : 'SOPs' }}</h1>
+        <h1>{{ activeView() === 'documents' ? 'Documents' : activeView() === 'members' ? 'Members' : activeView() === 'settings' ? 'Settings' : 'SOPs' }}</h1>
       </div>
-
-      @if (activeView() === 'documents') {
-        <div class="topbar-actions">
-          <button
-            type="button"
-            class="icon-button"
-            title="Refresh documents"
-            aria-label="Refresh documents"
-            [disabled]="!selectedCompanyId() || isLoadingDocuments()"
-            (click)="refreshDocuments()"
-          >
-            <i class="pi pi-refresh"></i>
-          </button>
-          @if (canManageSelectedCompany()) {
-          <span class="upload-limit">PDF, DOCX, or TXT, up to 25 MB per file</span>
-          <label
-            class="primary-action"
-            [class.disabled]="!selectedCompanyId() || isUploadingDocument()"
-            for="documentUpload"
-          >
-            <i class="pi pi-upload"></i>
-            Upload document
-          </label>
-          <input
-            id="documentUpload"
-            class="visually-hidden"
-            type="file"
-            multiple
-            accept=".txt,.pdf,.docx,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            [disabled]="!selectedCompanyId() || isUploadingDocument()"
-            (change)="onFileSelected($event); uploadDocument()"
-          />
-          }
-        </div>
-      } @else if (activeView() === 'sops' && canManageSelectedCompany()) {
-        <button
-          pButton
-          type="button"
-          label="New SOP"
-          icon="pi pi-plus"
-          [disabled]="generationInProgress()"
-          (click)="showSops('generate')"
-        ></button>
-      }
     </header>
 
     <div class="notice-region" aria-live="polite">
@@ -243,17 +198,45 @@
         <div class="view-toolbar">
           <div class="search-box">
             <i class="pi pi-search"></i>
-            <span>Document library</span>
+            <input type="search" aria-label="Search documents" placeholder="Search documents" [ngModel]="documentSearch()" (ngModelChange)="documentSearch.set($event)" />
           </div>
-          @if (selectedDocumentIds().size && canManageSelectedCompany()) {
-            <button
-              pButton
-              type="button"
-              severity="secondary"
-              [label]="'Create SOP from ' + selectedDocumentIds().size"
-              icon="pi pi-sparkles"
-              (click)="showSops('generate')"
-            ></button>
+          @if (bulkSelectedDocuments().length) {
+            <div class="bulk-selection-bar">
+            <div>
+              <strong>{{ bulkSelectedDocuments().length }} selected</strong>
+              <button type="button" class="text-action" (click)="clearBulkDocumentSelection()">Clear</button>
+            </div>
+            <div class="bulk-selection-actions">
+              @if (canManageSelectedCompany() && bulkSopSourceCount()) {
+                <button type="button" class="secondary-action" (click)="createSopFromBulkSelection()">
+                  <i class="pi pi-sparkles"></i>Create SOP
+                </button>
+              }
+              <div class="bulk-menu-wrap">
+                <button type="button" class="secondary-action" [attr.aria-expanded]="bulkActionsOpen()" (click)="bulkActionsOpen.update(open => !open)">
+                  Actions<i class="pi pi-chevron-down"></i>
+                </button>
+                @if (bulkActionsOpen()) {
+                  <div class="bulk-menu-scrim" role="presentation" (click)="bulkActionsOpen.set(false)"></div>
+                  <div class="bulk-menu">
+                    <button type="button" (click)="previewBulkDocuments()"><i class="pi pi-eye"></i><span><strong>View selected</strong><small>Review documents one at a time</small></span></button>
+                    <button type="button" [disabled]="isBulkDownloading()" (click)="downloadBulkDocuments()"><i class="pi pi-download"></i><span><strong>Download ZIP</strong><small>Save selected files together</small></span></button>
+                    @if (canManageSelectedCompany()) {
+                      <button type="button" class="danger-action" (click)="requestBulkDocumentDelete()"><i class="pi pi-trash"></i><span><strong>Delete selected</strong><small>Permanently remove all selected files</small></span></button>
+                    }
+                  </div>
+                }
+              </div>
+            </div>
+            </div>
+          } @else {
+            <div class="library-actions">
+              @if (canManageSelectedCompany()) {
+                <span class="upload-limit">PDF, DOCX, or TXT, up to 25 MB</span>
+                <label class="primary-action" [class.disabled]="isUploadingDocument()" for="documentUpload"><i class="pi pi-upload"></i>Upload</label>
+                <input id="documentUpload" class="visually-hidden" type="file" multiple accept=".txt,.pdf,.docx,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" [disabled]="isUploadingDocument()" (change)="onFileSelected($event); uploadDocument()" />
+              }
+            </div>
           }
         </div>
 
@@ -265,25 +248,33 @@
         }
 
         <div class="library" [class.refreshing]="isLoadingDocuments()">
-          @if (documents().length) {
+          @if (filteredDocuments().length) {
             <div class="library-row library-head">
-              <span>Select</span>
+              <span>
+                <input
+                  class="document-checkbox"
+                  type="checkbox"
+                  aria-label="Select all visible documents"
+                  [checked]="allFilteredDocumentsSelected()"
+                  [indeterminate]="someFilteredDocumentsSelected()"
+                  (change)="toggleAllFilteredDocuments($any($event.target).checked)"
+                />
+              </span>
               <span>Name</span>
               <span>Status</span>
               <span>Size</span>
               <span>Updated</span>
               <span></span>
             </div>
-            @for (document of documents(); track document.id) {
+            @for (document of filteredDocuments(); track document.id) {
               <div class="library-row">
                 <span>
                   <input
                     class="document-checkbox"
                     type="checkbox"
-                    [checked]="isDocumentSelected(document.id)"
-                    [disabled]="document.extractionStatus !== 'SUCCESS'"
+                    [checked]="bulkSelectedDocumentIds().has(document.id)"
                     [attr.aria-label]="'Select ' + document.originalFileName"
-                    (change)="toggleDocumentSelection(document)"
+                    (change)="toggleBulkDocumentSelection(document.id)"
                   />
                 </span>
                 <div class="name-cell">
@@ -340,9 +331,9 @@
           } @else if (!isLoadingDocuments()) {
             <section class="empty-state compact">
               <span class="empty-icon"><i class="pi pi-file-arrow-up"></i></span>
-              <h2>No documents yet</h2>
-              <p>Upload a PDF, DOCX, or TXT file to build your knowledge library.</p>
-              @if (canManageSelectedCompany()) {
+              <h2>{{ documentSearch() ? 'No matching documents' : 'No documents yet' }}</h2>
+              <p>{{ documentSearch() ? 'Try a different filename, type, or status.' : 'Upload a PDF, DOCX, or TXT file to build your knowledge library.' }}</p>
+              @if (canManageSelectedCompany() && !documentSearch()) {
               <label class="primary-action" for="documentUpload">
                 <i class="pi pi-upload"></i>
                 Upload document
@@ -354,44 +345,77 @@
       </section>
     } @else if (activeView() === 'members') {
       <section class="content-view members-view">
-        @if (canManageSelectedCompany()) {
-          <form class="member-form" (ngSubmit)="addMember()">
-            <label>Email<input name="memberEmail" type="email" [ngModel]="memberEmail()" (ngModelChange)="memberEmail.set($event)" placeholder="teammate@example.com" /></label>
-            <fieldset class="role-choice">
-              <legend>Role</legend>
-              <button type="button" [class.selected]="memberRole() === 'MEMBER'" (click)="memberRole.set('MEMBER')"><strong>Member</strong><small>View documents and SOPs</small></button>
-              <button type="button" [class.selected]="memberRole() === 'REVIEWER'" (click)="memberRole.set('REVIEWER')"><strong>Reviewer</strong><small>Approve or reject SOPs</small></button>
-              <button type="button" [class.selected]="memberRole() === 'ADMIN'" (click)="memberRole.set('ADMIN')"><strong>Admin</strong><small>Manage content and members</small></button>
-            </fieldset>
-            <button pButton type="submit" label="Add member" icon="pi pi-user-plus" [loading]="isSavingMember()"></button>
-          </form>
-        }
-        <div class="member-list">
-          @for (member of members(); track member.id) {
+        <header class="members-heading">
+          <div><h2>Team members</h2><p>Manage workspace access and review permissions.</p></div>
+          <span>{{ members().length }} {{ members().length === 1 ? 'member' : 'members' }}</span>
+        </header>
+        <div class="members-toolbar">
+          <div class="search-box"><i class="pi pi-search"></i><input type="search" aria-label="Search members" placeholder="Search by name, email, or role" [ngModel]="memberSearch()" (ngModelChange)="memberSearch.set($event)" /></div>
+        </div>
+        <div class="member-table">
+          <div class="member-table-head">
+            <button type="button" (click)="sortMembers('NAME')">Member <i class="pi" [class.pi-sort-up-fill]="memberSort() === 'NAME' && memberSortAscending()" [class.pi-sort-down-fill]="memberSort() === 'NAME' && !memberSortAscending()" [class.pi-sort-alt]="memberSort() !== 'NAME'"></i></button>
+            <button type="button" (click)="sortMembers('ROLE')">Role <i class="pi" [class.pi-sort-up-fill]="memberSort() === 'ROLE' && memberSortAscending()" [class.pi-sort-down-fill]="memberSort() === 'ROLE' && !memberSortAscending()" [class.pi-sort-alt]="memberSort() !== 'ROLE'"></i></button>
+            <span>Joined</span><span></span>
+          </div>
+          @for (member of filteredMembers(); track member.id) {
             <article>
-              <span class="account-avatar">{{ member.email.charAt(0).toUpperCase() }}</span>
-              <div><strong [title]="member.email">{{ member.email }}</strong><small>Joined {{ formatDate(member.createdAt) }}</small></div>
+              <div class="member-identity"><span class="account-avatar">{{ member.name.charAt(0).toUpperCase() }}</span><div><strong [title]="member.name">{{ member.name }}</strong><small [title]="member.email">{{ member.email }}</small></div></div>
+              <span class="role-badge" [class.role-owner]="member.role === 'OWNER'" [class.role-admin]="member.role === 'ADMIN'" [class.role-reviewer]="member.role === 'REVIEWER'" [class.role-member]="member.role === 'MEMBER'">{{ member.role }}</span>
+              <span class="member-joined">{{ formatDate(member.createdAt) }}</span>
               @if (canManageSelectedCompany() && member.role !== 'OWNER') {
                 <div class="role-menu-wrap">
-                  <button type="button" class="role-menu-trigger" (click)="toggleRoleMenu(member.id)">{{ member.role }} <i class="pi pi-chevron-down"></i></button>
+                  <button type="button" class="manage-member-button" (click)="toggleRoleMenu(member.id)">Manage <i class="pi pi-chevron-down"></i></button>
                   @if (openRoleMenuMemberId() === member.id) {
                     <div class="role-menu-scrim" role="presentation" (click)="openRoleMenuMemberId.set(null)"></div>
                     <div class="role-menu" (click)="$event.stopPropagation()">
                       <button type="button" (click)="changeMemberRole(member, 'MEMBER')"><strong>Member</strong><small>View documents and SOPs</small></button>
                       <button type="button" (click)="changeMemberRole(member, 'REVIEWER')"><strong>Reviewer</strong><small>Approve or reject SOPs</small></button>
                       <button type="button" (click)="changeMemberRole(member, 'ADMIN')"><strong>Admin</strong><small>Manage content and members</small></button>
+                      <button type="button" class="remove-member-action" (click)="requestMemberRemoval(member)"><strong>Remove member</strong><small>Revoke workspace access</small></button>
                     </div>
                   }
                 </div>
-                <button type="button" class="icon-button" title="Remove member" aria-label="Remove member" (click)="removeMember(member)"><i class="pi pi-trash"></i></button>
               } @else {
-                <p-tag [value]="member.role" severity="secondary" />
+                <span></span>
               }
             </article>
           } @empty {
-            @if (!isLoadingMembers()) { <p>No members found.</p> }
+            @if (!isLoadingMembers()) { <p class="member-empty">{{ memberSearch() ? 'No members match your search.' : 'No members found.' }}</p> }
           }
         </div>
+        @if (canManageSelectedCompany()) {
+          <section class="add-member-panel">
+            <header><div><h3>Add new member</h3><p>Add an existing SOPForge user and assign workspace access.</p></div><i class="pi pi-user-plus"></i></header>
+            <form class="member-form" (ngSubmit)="addMember()">
+              <label>Email address<input name="memberEmail" type="email" autocomplete="email" [ngModel]="memberEmail()" (ngModelChange)="memberEmail.set($event)" placeholder="user@example.com" /></label>
+              <label>Workspace role
+                <select name="memberRole" [ngModel]="memberRole()" (ngModelChange)="memberRole.set($event)">
+                  <option value="MEMBER">Member - view content</option>
+                  <option value="REVIEWER">Reviewer - review SOPs</option>
+                  <option value="ADMIN">Admin - manage workspace</option>
+                </select>
+              </label>
+              <button pButton type="submit" label="Add member" icon="pi pi-user-plus" [loading]="isSavingMember()"></button>
+            </form>
+          </section>
+        }
+      </section>
+    } @else if (activeView() === 'settings') {
+      <section class="content-view settings-view">
+        <section class="settings-section">
+          <div><span>Workspace</span><h2>{{ selectedCompany()?.name }}</h2></div>
+          <p>Your role in this workspace is {{ selectedCompany()?.role }}.</p>
+        </section>
+        @if (selectedCompany()?.role === 'OWNER') {
+          <section class="danger-zone">
+            <div>
+              <h2>Delete workspace</h2>
+              <p>Permanently delete this workspace, all uploaded documents, SOPs, versions, and member access.</p>
+            </div>
+            <button pButton type="button" severity="danger" label="Delete workspace" icon="pi pi-trash" (click)="requestCompanyDelete()"></button>
+          </section>
+        }
       </section>
     } @else if (sopView() === 'library') {
       <section class="content-view">
@@ -427,6 +451,9 @@
             </button>
             <button type="button" [class.selected]="sopFilter() === 'ARCHIVED'" (click)="setSopFilter('ARCHIVED')">Archived</button>
           </div>
+          @if (canManageSelectedCompany()) {
+            <button pButton type="button" label="New SOP" icon="pi pi-plus" [disabled]="generationInProgress()" (click)="showSops('generate')"></button>
+          }
         </div>
 
         <div class="sop-library" [class.refreshing]="isLoadingSops()">
@@ -524,7 +551,6 @@
                 type="text"
                 [ngModel]="sopTitle()"
                 (ngModelChange)="sopTitle.set($event); relevancePreview.set(null)"
-                placeholder="Restaurant Closing SOP"
               />
             </div>
 
@@ -536,13 +562,12 @@
                 rows="5"
                 [ngModel]="sopInstructions()"
                 (ngModelChange)="sopInstructions.set($event); relevancePreview.set(null)"
-                placeholder="Focus on sanitation, side work, and manager sign-off."
               ></textarea>
             </div>
 
             <div>
               <label for="sopRoles">Responsible roles</label>
-              <input id="sopRoles" name="sopRoles" type="text" [ngModel]="sopRoles()" (ngModelChange)="sopRoles.set($event); relevancePreview.set(null)" placeholder="Shift Manager, Server" />
+              <input id="sopRoles" name="sopRoles" type="text" [ngModel]="sopRoles()" (ngModelChange)="sopRoles.set($event); relevancePreview.set(null)" />
             </div>
 
             <fieldset class="source-picker">
@@ -651,6 +676,11 @@
           </h2>
         </div>
         <div class="modal-header-actions">
+          @if (documentPreviewQueue().length > 1) {
+            <span class="preview-position">{{ documentPreviewPosition() + 1 }} of {{ documentPreviewQueue().length }}</span>
+            <button type="button" class="icon-button" aria-label="Previous document" title="Previous document" [disabled]="documentPreviewPosition() <= 0" (click)="previewAdjacentDocument(-1)"><i class="pi pi-chevron-left"></i></button>
+            <button type="button" class="icon-button" aria-label="Next document" title="Next document" [disabled]="documentPreviewPosition() >= documentPreviewQueue().length - 1" (click)="previewAdjacentDocument(1)"><i class="pi pi-chevron-right"></i></button>
+          }
           @if (documentPreview(); as preview) {
             <button
               type="button"
@@ -833,6 +863,19 @@
   </div>
 }
 
+@if (bulkDeleteCandidates(); as documents) {
+  <div class="modal-backdrop" role="presentation" (click)="bulkDeleteCandidates.set(null)">
+    <section class="modal confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="bulkDeleteHeading" (click)="$event.stopPropagation()">
+      <header class="modal-header"><div><span>Delete documents</span><h2 id="bulkDeleteHeading">Delete {{ documents.length }} documents?</h2></div></header>
+      <p>This permanently removes the selected stored files, extracted text, and document chunks. This action cannot be undone.</p>
+      <div class="modal-actions">
+        <button pButton type="button" severity="secondary" label="Cancel" [disabled]="isBulkDeleting()" (click)="bulkDeleteCandidates.set(null)"></button>
+        <button pButton type="button" severity="danger" label="Delete documents" icon="pi pi-trash" [loading]="isBulkDeleting()" (click)="confirmBulkDocumentDelete()"></button>
+      </div>
+    </section>
+  </div>
+}
+
 @if (companyDeleteCandidate(); as company) {
   <div class="modal-backdrop" role="presentation" (click)="companyDeleteCandidate.set(null)">
     <section class="modal confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="deleteCompanyHeading" (click)="$event.stopPropagation()">
@@ -841,6 +884,19 @@
       <div class="modal-actions">
         <button pButton type="button" severity="secondary" label="Cancel" [disabled]="isDeletingCompany()" (click)="companyDeleteCandidate.set(null)"></button>
         <button pButton type="button" severity="danger" label="Delete workspace" icon="pi pi-trash" [loading]="isDeletingCompany()" (click)="confirmCompanyDelete()"></button>
+      </div>
+    </section>
+  </div>
+}
+
+@if (removeMemberCandidate(); as member) {
+  <div class="modal-backdrop" role="presentation" (click)="removeMemberCandidate.set(null)">
+    <section class="modal confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="removeMemberHeading" (click)="$event.stopPropagation()">
+      <header class="modal-header"><div><span>Remove member</span><h2 id="removeMemberHeading">{{ member.name }}</h2></div></header>
+      <p>{{ member.email }} will lose access to this workspace. Their account will not be deleted.</p>
+      <div class="modal-actions">
+        <button pButton type="button" severity="secondary" label="Cancel" (click)="removeMemberCandidate.set(null)"></button>
+        <button pButton type="button" severity="danger" label="Remove member" icon="pi pi-user-minus" (click)="confirmMemberRemoval()"></button>
       </div>
     </section>
   </div>
