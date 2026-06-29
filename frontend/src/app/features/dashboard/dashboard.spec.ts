@@ -1,5 +1,6 @@
 import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { ActivatedRoute, convertToParamMap, Router } from '@angular/router';
 import { of } from 'rxjs';
 
 import { AuthService } from '../../core/auth/auth.service';
@@ -87,6 +88,14 @@ describe('Dashboard', () => {
     await TestBed.configureTestingModule({
       imports: [Dashboard],
       providers: [
+        {
+          provide: ActivatedRoute,
+          useValue: { paramMap: of(convertToParamMap({ view: 'documents' })) }
+        },
+        {
+          provide: Router,
+          useValue: { navigateByUrl: vi.fn(() => Promise.resolve(true)) }
+        },
         {
           provide: AuthService,
           useValue: {

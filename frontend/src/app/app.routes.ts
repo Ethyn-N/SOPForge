@@ -18,16 +18,21 @@ export const routes: Routes = [
   },
   {
     path: 'dashboard',
+    pathMatch: 'full',
+    redirectTo: 'dashboard/documents'
+  },
+  {
+    path: 'dashboard/:view',
     component: Dashboard,
     canActivate: [authGuard]
   },
   {
     path: '',
     pathMatch: 'full',
-    redirectTo: 'dashboard'
+    redirectTo: 'dashboard/documents'
   },
   {
     path: '**',
-    redirectTo: 'dashboard'
+    redirectTo: 'dashboard/documents'
   }
 ];

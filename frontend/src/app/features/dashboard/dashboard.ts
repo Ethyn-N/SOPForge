@@ -12,6 +12,7 @@ import {
 } from '@angular/core';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router } from '@angular/router';
 import { catchError, concatMap, finalize, from, map, of, Subscription, switchMap, timer, toArray } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { ProgressSpinnerModule } from 'primeng/progressspinner';
@@ -46,6 +47,8 @@ export class Dashboard implements OnInit, OnDestroy {
   private readonly documentService = inject(DocumentService);
   private readonly sopService = inject(SopService);
   private readonly sanitizer = inject(DomSanitizer);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
 
   readonly user = this.authService.currentUser;
   readonly companies = signal<Company[]>([]);
@@ -230,8 +233,17 @@ export class Dashboard implements OnInit, OnDestroy {
   private readonly sopCache = new Map<number, Sop[]>();
   private generationPollingSubscription?: Subscription;
   private documentPollingSubscription?: Subscription;
+  private dashboardRouteSubscription?: Subscription;
 
   ngOnInit(): void {
+    this.dashboardRouteSubscription = this.route.paramMap.subscribe((params) => {
+      const view = params.get('view');
+      if (view === 'documents' || view === 'sops' || view === 'members' || view === 'settings') {
+        this.activeView.set(view);
+      } else if (view) {
+        void this.router.navigateByUrl('/dashboard/documents', { replaceUrl: true });
+      }
+    });
     this.loadCompanies();
     this.startPendingGenerationPolling();
     this.documentPollingSubscription = timer(15000, 15000).subscribe(() => {
@@ -243,6 +255,7 @@ export class Dashboard implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.generationPollingSubscription?.unsubscribe();
     this.documentPollingSubscription?.unsubscribe();
+    this.dashboardRouteSubscription?.unsubscribe();
     this.noticeAutoDismissEffect.destroy();
 
     if (this.noticeDismissTimer) {
@@ -384,19 +397,23 @@ export class Dashboard implements OnInit, OnDestroy {
 
   showDocuments(): void {
     this.activeView.set('documents');
+    void this.router.navigateByUrl('/dashboard/documents');
   }
 
   showSops(view: 'library' | 'generate' = 'library'): void {
     this.activeView.set('sops');
     this.sopView.set(view);
+    void this.router.navigateByUrl('/dashboard/sops');
   }
 
   showMembers(): void {
     this.activeView.set('members');
+    void this.router.navigateByUrl('/dashboard/members');
   }
 
   showSettings(): void {
     this.activeView.set('settings');
+    void this.router.navigateByUrl('/dashboard/settings');
   }
 
   addMember(): void {
