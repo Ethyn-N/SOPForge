@@ -231,6 +231,8 @@ public class SopService {
                 relevanceChunk.score(),
                 relevanceChunk.baseScore(),
                 relevanceChunk.phraseScore(),
+                relevanceChunk.semanticScore(),
+                relevanceChunk.controlScore(),
                 relevanceChunk.score(),
                 relevanceChunk.matchedTerms(),
                 relevanceChunk.matchedPhrases(),

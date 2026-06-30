@@ -10,6 +10,8 @@ public record RelevanceChunkResponse(
         Integer score,
         Integer baseScore,
         Integer phraseScore,
+        Double semanticScore,
+        Integer controlScore,
         Integer finalScore,
         List<String> matchedTerms,
         List<String> matchedPhrases,

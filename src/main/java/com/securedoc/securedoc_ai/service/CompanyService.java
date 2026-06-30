@@ -9,6 +9,7 @@ import com.securedoc.securedoc_ai.exception.NotFoundException;
 import com.securedoc.securedoc_ai.model.Company;
 import com.securedoc.securedoc_ai.model.CompanyMember;
 import com.securedoc.securedoc_ai.model.CompanyRole;
+import com.securedoc.securedoc_ai.model.Document;
 import com.securedoc.securedoc_ai.model.User;
 import com.securedoc.securedoc_ai.repository.CompanyMemberRepository;
 import com.securedoc.securedoc_ai.repository.CompanyRepository;
@@ -56,10 +57,10 @@ public class CompanyService {
     public void deleteCompany(Long companyId, User user) {
         Company company = requireCompanyRole(companyId, user, CompanyRole.OWNER);
         List<String> storedFileNames = documentRepository.findByCompany(company).stream()
-                .map(document -> document.getStoredFileName())
+                .map(Document::getStoredFileName)
                 .toList();
 
-        companyRepository.delete(company);
+        companyRepository.deleteCascadeById(company.getId());
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {

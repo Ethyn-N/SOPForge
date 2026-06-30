@@ -41,7 +41,6 @@ Not finished yet:
 - Frontend approval workflow
 - Frontend version history views
 - Frontend member management screens
-- Vector embeddings for real semantic RAG
 - Production file storage
 - Production deployment
 
@@ -69,7 +68,7 @@ Frontend:
 
 Local infrastructure:
 
-- PostgreSQL
+- PostgreSQL with pgvector
 - Ollama
 - Local filesystem document storage
 
@@ -173,16 +172,18 @@ Workflow statuses:
 - `REJECTED`
 - `ARCHIVED`
 
-### RAG Foundations
+### Hybrid RAG
 
-The project has early retrieval foundations:
+The project uses hybrid retrieval:
 
 - Extracted document text is split into chunks.
-- Chunks are scored using keyword/phrase relevance.
+- Ollama creates vector embeddings for document chunks.
+- PostgreSQL/pgvector performs cosine-similarity retrieval.
+- Semantic similarity is combined with keyword, phrase, and control evidence.
 - SOP generation can use selected relevant chunks.
 - Generated SOPs store source chunk references for debugging.
 
-This is not full vector search yet. A future version should add embeddings and similarity search.
+An HNSW index supports scalable cosine-similarity search. Relevance previews expose the scoring signals used for each selected chunk.
 
 ## Local Setup
 
@@ -190,22 +191,36 @@ This is not full vector search yet. A future version should add embeddings and s
 
 - Java 26
 - Maven
-- PostgreSQL
+- Docker Desktop for the recommended pgvector database
 - Ollama, if testing AI generation
 
-Create a PostgreSQL database matching `application.properties`:
+Start the local pgvector database on port `5433`:
+
+```powershell
+docker compose up -d postgres
+```
+
+Pull the embedding model once:
+
+```powershell
+ollama pull qwen3-embedding:0.6b
+```
+
+Start Spring Boot with both the private local settings and pgvector database profile:
+
+```powershell
+.\mvnw spring-boot:run "-Dspring-boot.run.profiles=local,pgvector"
+```
+
+The `pgvector` profile uses:
 
 ```properties
-spring.datasource.url=jdbc:postgresql://localhost:5432/securedoc_ai
+spring.datasource.url=jdbc:postgresql://localhost:5433/securedoc_ai
 spring.datasource.username=securedoc_user
 spring.datasource.password=SecureDoc123!
 ```
 
-Start the backend:
-
-```powershell
-.\mvnw spring-boot:run
-```
+Flyway enables pgvector, creates the vector column, and builds the HNSW index. New document chunks receive embeddings when their document is uploaded. Because the project is still local, start with a fresh pgvector database and re-upload any documents you still need instead of maintaining a data-backfill workflow.
 
 The backend runs on:
 

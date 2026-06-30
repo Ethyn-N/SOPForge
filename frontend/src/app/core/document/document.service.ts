@@ -1,4 +1,4 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpEvent } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 
@@ -15,11 +15,14 @@ export class DocumentService {
     return this.http.get<Document[]>(`${API_BASE_URL}/companies/${companyId}/documents`);
   }
 
-  uploadCompanyDocument(companyId: number, file: File): Observable<Document> {
+  uploadCompanyDocument(companyId: number, file: File): Observable<HttpEvent<Document>> {
     const formData = new FormData();
     formData.append('file', file);
 
-    return this.http.post<Document>(`${API_BASE_URL}/companies/${companyId}/documents`, formData);
+    return this.http.post<Document>(`${API_BASE_URL}/companies/${companyId}/documents`, formData, {
+      observe: 'events',
+      reportProgress: true
+    });
   }
 
   getCompanyDocumentText(companyId: number, documentId: number): Observable<DocumentText> {

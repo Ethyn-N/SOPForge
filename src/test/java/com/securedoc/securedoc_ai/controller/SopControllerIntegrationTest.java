@@ -1,5 +1,6 @@
 package com.securedoc.securedoc_ai.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.securedoc.securedoc_ai.config.StorageProperties;
 import com.securedoc.securedoc_ai.model.Company;
 import com.securedoc.securedoc_ai.model.CompanyMember;
@@ -36,10 +37,12 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.util.FileSystemUtils;
 
 import java.io.IOException;
-import java.nio.file.Path;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 
+import static org.awaitility.Awaitility.await;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.hasItem;
@@ -65,6 +68,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.datasource.password=",
         "spring.jpa.hibernate.ddl-auto=validate",
         "spring.jpa.show-sql=false",
+        "spring.flyway.locations=classpath:db/migration/common,classpath:db/migration/h2",
+        "securedoc.ai.ollama.semantic-search-enabled=false",
         "securedoc.storage.upload-dir=target/test-uploads/sops"
 })
 class SopControllerIntegrationTest {
@@ -101,6 +106,9 @@ class SopControllerIntegrationTest {
 
     @Autowired
     private StorageProperties storageProperties;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     private User userOne;
     private User userTwo;
@@ -194,15 +202,13 @@ class SopControllerIntegrationTest {
                 .getResponse()
                 .getContentAsString();
 
-        Long jobId = Long.valueOf(response.replaceAll(".*\\\"id\\\":(\\d+).*", "$1"));
-        long deadline = System.currentTimeMillis() + 3000;
-
-        while (System.currentTimeMillis() < deadline
-                && sopGenerationJobRepository.findById(jobId)
-                .orElseThrow()
-                .getStatus() != SopGenerationJobStatus.SUCCESS) {
-            Thread.sleep(25);
-        }
+        Long jobId = objectMapper.readTree(response).path("id").longValue();
+        await()
+                .atMost(Duration.ofSeconds(3))
+                .pollInterval(Duration.ofMillis(25))
+                .until(() -> sopGenerationJobRepository.findById(jobId)
+                        .orElseThrow()
+                        .getStatus() == SopGenerationJobStatus.SUCCESS);
 
         mockMvc.perform(get("/api/companies/{companyId}/sop-generation-jobs/{jobId}", company.getId(), jobId)
                         .header("Authorization", bearer(userOneToken)))
@@ -532,7 +538,7 @@ class SopControllerIntegrationTest {
     }
 
     @Test
-    void reviewerCanSubmitAndRejectCompanySopButCannotApprove() throws Exception {
+    void reviewerCanSubmitApproveAndRejectCompanySops() throws Exception {
         Company company = createCompanyFor(userOne, "Restaurant Group");
         addCompanyMember(company, userTwo, CompanyRole.REVIEWER);
         uploadCompanyTextDocument(company, "server.txt", "Server opening steps", userOneToken);
@@ -558,10 +564,31 @@ class SopControllerIntegrationTest {
 
         mockMvc.perform(post("/api/companies/{companyId}/sops/{id}/approve", company.getId(), sop.getId())
                         .header("Authorization", bearer(userTwoToken)))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.message").value("You do not have permission to perform this company action."));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("APPROVED"));
 
-        mockMvc.perform(post("/api/companies/{companyId}/sops/{id}/reject", company.getId(), sop.getId())
+        mockMvc.perform(post("/api/companies/{companyId}/sops/generate", company.getId())
+                        .header("Authorization", bearer(userOneToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Rejectable SOP",
+                                  "sourceDocumentIds": [%d]
+                                }
+                                """.formatted(document.getId())))
+                .andExpect(status().isOk());
+
+        Sop rejectableSop = sopRepository.findByCompany(company).stream()
+                .filter(candidate -> candidate.getTitle().equals("Rejectable SOP"))
+                .findFirst()
+                .orElseThrow();
+
+        mockMvc.perform(post("/api/companies/{companyId}/sops/{id}/submit", company.getId(), rejectableSop.getId())
+                        .header("Authorization", bearer(userTwoToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING_REVIEW"));
+
+        mockMvc.perform(post("/api/companies/{companyId}/sops/{id}/reject", company.getId(), rejectableSop.getId())
                         .header("Authorization", bearer(userTwoToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("REJECTED"));

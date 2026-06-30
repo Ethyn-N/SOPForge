@@ -36,6 +36,7 @@ public class DocumentChunkService {
     );
 
     private final DocumentChunkRepository documentChunkRepository;
+    private final DocumentEmbeddingService documentEmbeddingService;
 
     @Transactional
     public void createChunks(Document document) {
@@ -52,7 +53,8 @@ public class DocumentChunkService {
             chunks.add(new DocumentChunk(document, index, chunkContents.get(index)));
         }
 
-        documentChunkRepository.saveAll(chunks);
+        List<DocumentChunk> savedChunks = documentChunkRepository.saveAll(chunks);
+        documentEmbeddingService.indexChunks(savedChunks);
     }
 
     @Transactional
@@ -70,9 +72,10 @@ public class DocumentChunkService {
             String instructions
     ) {
         QueryContext queryContext = queryContext(requestedTitle, instructions);
+        Map<Long, Double> semanticScores = semanticScores(documents, requestedTitle, instructions);
 
         return documents.stream()
-                .map(document -> promptDocument(document, relevantText(document, queryContext)))
+                .map(document -> promptDocument(document, relevantText(document, queryContext, semanticScores)))
                 .toList();
     }
 
@@ -82,9 +85,10 @@ public class DocumentChunkService {
             String instructions
     ) {
         QueryContext queryContext = queryContext(requestedTitle, instructions);
+        Map<Long, Double> semanticScores = semanticScores(documents, requestedTitle, instructions);
 
         List<RelevanceChunk> relevanceChunks = documents.stream()
-                .flatMap(document -> relevantChunks(document, queryContext).stream())
+                .flatMap(document -> relevantChunks(document, queryContext, semanticScores).stream())
                 .toList();
 
         return new RelevancePreview(queryContext.queryTermValues(), queryContext.phrases(), relevanceChunks);
@@ -106,19 +110,29 @@ public class DocumentChunkService {
         return promptDocument;
     }
 
-    private String relevantText(Document document, QueryContext queryContext) {
-        return joinChunks(relevantChunks(document, queryContext).stream()
+    private String relevantText(
+            Document document,
+            QueryContext queryContext,
+            Map<Long, Double> semanticScores
+    ) {
+        return joinChunks(relevantChunks(document, queryContext, semanticScores).stream()
                 .map(RelevanceChunk::chunk)
                 .toList());
     }
 
-    private List<RelevanceChunk> relevantChunks(Document document, QueryContext queryContext) {
+    private List<RelevanceChunk> relevantChunks(
+            Document document,
+            QueryContext queryContext,
+            Map<Long, Double> semanticScores
+    ) {
         List<DocumentChunk> chunks = getChunks(document);
 
         if (chunks.isEmpty()) {
             return List.of(new RelevanceChunk(
                     document,
                     new DocumentChunk(document, 0, document.getExtractedText()),
+                    0,
+                    0,
                     0,
                     0,
                     0,
@@ -130,12 +144,12 @@ public class DocumentChunkService {
         if (queryContext.isEmpty()) {
             return chunks.stream()
                     .limit(MAX_CHUNKS_FOR_AI)
-                    .map(chunk -> new RelevanceChunk(document, chunk, 0, 0, 0, List.of(), List.of()))
+                    .map(chunk -> new RelevanceChunk(document, chunk, 0, 0, 0, 0, 0, List.of(), List.of()))
                     .toList();
         }
 
         List<RelevanceChunk> scoredChunks = chunks.stream()
-                .map(chunk -> scoreChunk(document, chunk, queryContext))
+                .map(chunk -> scoreChunk(document, chunk, queryContext, semanticScores))
                 .filter(scoredChunk -> scoredChunk.score() > 0)
                 .sorted(Comparator.comparingInt(RelevanceChunk::score).reversed()
                         .thenComparing(Comparator.comparingInt(RelevanceChunk::phraseScore).reversed())
@@ -152,13 +166,13 @@ public class DocumentChunkService {
                 .sorted(Comparator.comparingInt(ControlChunk::score).reversed()
                         .thenComparing(controlChunk -> controlChunk.chunk().getChunkIndex()))
                 .limit(MAX_CONTROL_CHUNKS_FOR_AI)
-                .map(controlChunk -> scoreChunk(document, controlChunk.chunk(), queryContext))
+                .map(controlChunk -> scoreChunk(document, controlChunk.chunk(), queryContext, semanticScores))
                 .forEach(chunk -> selectedChunks.putIfAbsent(chunk.chunk().getChunkIndex(), chunk));
 
         if (selectedChunks.isEmpty()) {
             return chunks.stream()
                     .limit(MAX_CHUNKS_FOR_AI)
-                    .map(chunk -> new RelevanceChunk(document, chunk, 0, 0, 0, List.of(), List.of()))
+                    .map(chunk -> new RelevanceChunk(document, chunk, 0, 0, 0, 0, 0, List.of(), List.of()))
                     .toList();
         }
 
@@ -168,7 +182,12 @@ public class DocumentChunkService {
                 .toList();
     }
 
-    private RelevanceChunk scoreChunk(Document document, DocumentChunk chunk, QueryContext queryContext) {
+    private RelevanceChunk scoreChunk(
+            Document document,
+            DocumentChunk chunk,
+            QueryContext queryContext,
+            Map<Long, Double> semanticScores
+    ) {
         String content = normalize(chunk.getContent());
         List<String> matchedTerms = new ArrayList<>();
         List<String> matchedPhrases = new ArrayList<>();
@@ -190,13 +209,26 @@ public class DocumentChunkService {
         }
 
         int phraseScore = matchedPhrases.size() * 5;
+        int controlScore = controlEvidenceScore(chunk.getContent());
+        double semanticScore = chunk.getId() == null
+                ? 0.0
+                : semanticScores.getOrDefault(chunk.getId(), 0.0);
+        double keywordScore = Math.min(1.0, (baseScore + phraseScore) / 20.0);
+        double normalizedControlScore = Math.min(1.0, controlScore / 5.0);
+        int finalScore = (int) Math.round((
+                semanticScore * 0.65
+                        + keywordScore * 0.25
+                        + normalizedControlScore * 0.10
+        ) * 1000);
 
         return new RelevanceChunk(
                 document,
                 chunk,
-                baseScore + phraseScore,
+                finalScore,
                 baseScore,
                 phraseScore,
+                semanticScore,
+                controlScore,
                 matchedTerms,
                 matchedPhrases
         );
@@ -213,6 +245,21 @@ public class DocumentChunkService {
                 .toList();
 
         return new QueryContext(queryTerms, queryPhrases(instructions));
+    }
+
+    private Map<Long, Double> semanticScores(
+            List<Document> documents,
+            String requestedTitle,
+            String instructions
+    ) {
+        List<DocumentChunk> chunks = documents.stream()
+                .flatMap(document -> getChunks(document).stream())
+                .toList();
+        String query = String.join(" ",
+                isBlank(requestedTitle) ? "" : requestedTitle,
+                isBlank(instructions) ? "" : instructions
+        ).trim();
+        return documentEmbeddingService.semanticScores(chunks, query);
     }
 
     private void addQueryTerms(Map<String, Integer> terms, String value, int weight) {
@@ -422,6 +469,8 @@ public class DocumentChunkService {
             int score,
             int baseScore,
             int phraseScore,
+            double semanticScore,
+            int controlScore,
             List<String> matchedTerms,
             List<String> matchedPhrases
     ) {

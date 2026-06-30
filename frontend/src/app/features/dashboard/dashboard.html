@@ -240,13 +240,6 @@
           }
         </div>
 
-        @if (selectedFileName() && isUploadingDocument()) {
-          <div class="upload-progress">
-            <p-progress-spinner ariaLabel="Uploading document" strokeWidth="5" />
-            <span>Uploading {{ selectedFileName() }}</span>
-          </div>
-        }
-
         <div class="library" [class.refreshing]="isLoadingDocuments()">
           @if (filteredDocuments().length) {
             <div class="library-row library-head">
@@ -635,12 +628,15 @@
                   <article>
                     <header>
                       <strong>{{ chunk.originalFileName }}</strong>
-                      <span>{{ chunk.finalScore }}</span>
+                      <span>{{ chunk.finalScore }} hybrid</span>
                     </header>
                     <p>{{ chunk.contentPreview }}</p>
-                    @if (chunk.matchedTerms.length) {
-                      <small>Matched: {{ chunk.matchedTerms.join(', ') }}</small>
-                    }
+                    <div class="chunk-metadata">
+                      <small>Semantic: {{ (chunk.semanticScore * 100).toFixed(0) }}% | Keyword: {{ chunk.baseScore + chunk.phraseScore }} | Controls: {{ chunk.controlScore }}</small>
+                      @if (chunk.matchedTerms.length) {
+                        <small>Matched: {{ chunk.matchedTerms.join(', ') }}</small>
+                      }
+                    </div>
                   </article>
                 } @empty {
                   <p class="panel-empty">No relevant evidence found.</p>
@@ -658,6 +654,56 @@
     }
   </section>
 </main>
+
+@if (uploadItems().length) {
+  <aside class="upload-manager" [class.collapsed]="uploadPanelCollapsed()" aria-live="polite">
+    <header>
+      <button type="button" class="upload-manager-summary" (click)="toggleUploadPanel()">
+        <span>
+          @if (uploadsComplete()) {
+            {{ completedUploadCount() }} {{ completedUploadCount() === 1 ? 'upload' : 'uploads' }} complete
+          } @else {
+            Uploading {{ completedUploadCount() }} of {{ uploadItems().length }}
+          }
+        </span>
+        <i class="pi" [class.pi-chevron-down]="!uploadPanelCollapsed()" [class.pi-chevron-up]="uploadPanelCollapsed()"></i>
+      </button>
+      @if (uploadsComplete()) {
+        <button type="button" class="upload-manager-close" aria-label="Dismiss uploads" title="Dismiss" (click)="dismissUploadPanel()">
+          <i class="pi pi-times"></i>
+        </button>
+      }
+    </header>
+    <div class="upload-overall-track" aria-hidden="true">
+      <span [style.width.%]="uploadOverallProgress()"></span>
+    </div>
+    @if (!uploadPanelCollapsed()) {
+      <div class="upload-list">
+        @for (item of uploadItems(); track item.id) {
+          <div class="upload-item" [class.failed]="item.status === 'FAILED'" [class.complete]="item.status === 'SUCCESS'">
+            <span class="upload-file-icon">
+              @if (item.status === 'SUCCESS') {
+                <i class="pi pi-check"></i>
+              } @else if (item.status === 'FAILED') {
+                <i class="pi pi-exclamation-circle"></i>
+              } @else {
+                <i class="pi pi-file"></i>
+              }
+            </span>
+            <div class="upload-file-details">
+              <strong [title]="item.fileName">{{ item.fileName }}</strong>
+              <div class="upload-file-track" aria-hidden="true"><span [style.width.%]="item.progress"></span></div>
+              @if (item.error) {
+                <small [title]="item.error">{{ item.error }}</small>
+              }
+            </div>
+            <span class="upload-status">{{ uploadStatusLabel(item) }}</span>
+          </div>
+        }
+      </div>
+    }
+  </aside>
+}
 
 @if (documentPreview() || isLoadingDocumentPreview()) {
   <div class="modal-backdrop" role="presentation" (click)="closeDocumentPreview()">

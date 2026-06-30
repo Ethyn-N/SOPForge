@@ -33,6 +33,8 @@ export interface RelevanceChunk {
   score: number;
   baseScore: number;
   phraseScore: number;
+  semanticScore: number;
+  controlScore: number;
   finalScore: number;
   matchedTerms: string[];
   matchedPhrases: string[];

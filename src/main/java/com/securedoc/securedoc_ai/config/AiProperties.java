@@ -13,4 +13,7 @@ public class AiProperties {
 
     private String baseUrl = "http://localhost:11434";
     private String model = "qwen2.5:14b";
+    private String embeddingModel = "qwen3-embedding:0.6b";
+    private int embeddingDimensions = 1024;
+    private boolean semanticSearchEnabled = true;
 }

@@ -18,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class OllamaSopGeneratorTest {
 
+    private final ObjectMapper objectMapper = new ObjectMapper();
     private HttpServer httpServer;
 
     @AfterEach
@@ -126,6 +127,25 @@ class OllamaSopGeneratorTest {
         assertEquals("server.pdf", draft.roles());
     }
 
+    @Test
+    void generateRetriesWhenEvidenceResponseContainsNoRequirements() throws IOException {
+        startOllamaStub(List.of(
+                ollamaResponse("""
+                        {"requirements":[],"conflicts":[],"unsupportedSections":[]}
+                        """),
+                evidenceResponse(),
+                ollamaResponse("""
+                        {"title":"Kitchen SOP","purpose":"Purpose","scope":"Scope","procedure":"1. Follow the documented process.","roles":"Kitchen Staff"}
+                        """)
+        ));
+
+        GeneratedSopDraft draft = new OllamaSopGenerator(aiProperties(), new ObjectMapper())
+                .generate(List.of(document()), "Kitchen SOP", "cooking", user());
+
+        assertEquals("Kitchen SOP", draft.title());
+        assertEquals("1. Follow the documented process.", draft.procedure());
+    }
+
     private void startOllamaStub(List<String> responseBodies) throws IOException {
         AtomicInteger requestCount = new AtomicInteger();
         httpServer = HttpServer.create(new InetSocketAddress(0), 0);
@@ -141,6 +161,14 @@ class OllamaSopGeneratorTest {
             }
         });
         httpServer.start();
+    }
+
+    private String ollamaResponse(String content) {
+        return objectMapper.createObjectNode()
+                .set("message", objectMapper.createObjectNode()
+                        .put("role", "assistant")
+                        .put("content", content))
+                .toString();
     }
 
     private String evidenceResponse() {

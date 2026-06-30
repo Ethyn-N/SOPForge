@@ -24,6 +24,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.datasource.password=",
         "spring.jpa.hibernate.ddl-auto=validate",
         "spring.jpa.show-sql=false",
+        "spring.flyway.locations=classpath:db/migration/common,classpath:db/migration/h2",
+        "securedoc.ai.ollama.semantic-search-enabled=false",
         "securedoc.storage.upload-dir=target/test-uploads/auth"
 })
 class AuthControllerIntegrationTest {

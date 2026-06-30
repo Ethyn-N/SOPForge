@@ -1,4 +1,4 @@
-import { HttpErrorResponse } from '@angular/common/http';
+import { HttpErrorResponse, HttpEventType } from '@angular/common/http';
 import {
   Component,
   computed,
@@ -13,7 +13,7 @@ import {
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
-import { catchError, concatMap, finalize, from, map, of, Subscription, switchMap, timer, toArray } from 'rxjs';
+import { catchError, concatMap, finalize, from, last, map, of, Subscription, switchMap, tap, timer, toArray } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { ProgressSpinnerModule } from 'primeng/progressspinner';
 import { TagModule } from 'primeng/tag';
@@ -32,6 +32,17 @@ import {
 import { SopService } from '../../core/sop/sop.service';
 
 const PENDING_GENERATION_KEY = 'sopforge_pending_generation';
+
+type UploadStatus = 'QUEUED' | 'UPLOADING' | 'PROCESSING' | 'SUCCESS' | 'FAILED';
+
+interface DocumentUploadItem {
+  id: string;
+  fileName: string;
+  fileSize: number;
+  progress: number;
+  status: UploadStatus;
+  error?: string;
+}
 
 @Component({
   selector: 'app-dashboard',
@@ -76,7 +87,8 @@ export class Dashboard implements OnInit, OnDestroy {
   readonly documentPreviewQueue = signal<Document[]>([]);
   readonly documentSearch = signal('');
   readonly companyName = signal('');
-  readonly selectedFileName = signal('');
+  readonly uploadItems = signal<DocumentUploadItem[]>([]);
+  readonly uploadPanelCollapsed = signal(false);
   readonly sopTitle = signal('');
   readonly sopInstructions = signal('');
   readonly sopRoles = signal('');
@@ -117,7 +129,26 @@ export class Dashboard implements OnInit, OnDestroy {
   readonly errorMessage = signal<string | null>(null);
   readonly successMessage = signal<string | null>(null);
 
+  readonly completedUploadCount = computed(() =>
+    this.uploadItems().filter((item) => item.status === 'SUCCESS' || item.status === 'FAILED').length
+  );
+
+  readonly uploadOverallProgress = computed(() => {
+    const items = this.uploadItems();
+    const totalBytes = items.reduce((total, item) => total + item.fileSize, 0);
+    if (!totalBytes) return 0;
+    return Math.round(items.reduce(
+      (total, item) => total + item.fileSize * item.progress,
+      0
+    ) / totalBytes);
+  });
+
+  readonly uploadsComplete = computed(() =>
+    this.uploadItems().length > 0 && this.completedUploadCount() === this.uploadItems().length
+  );
+
   private noticeDismissTimer?: ReturnType<typeof setTimeout>;
+  private uploadDismissTimer?: ReturnType<typeof setTimeout>;
   private readonly noticeAutoDismissEffect = effect(() => {
     const error = this.errorMessage();
     const success = this.successMessage();
@@ -261,6 +292,7 @@ export class Dashboard implements OnInit, OnDestroy {
     if (this.noticeDismissTimer) {
       clearTimeout(this.noticeDismissTimer);
     }
+    this.clearUploadDismissTimer();
 
     this.closeDocumentPreview();
   }
@@ -512,11 +544,7 @@ export class Dashboard implements OnInit, OnDestroy {
   onFileSelected(event: Event): void {
     const input = event.target as HTMLInputElement;
     this.selectedFiles = Array.from(input.files ?? []);
-    this.selectedFileName.set(
-      this.selectedFiles.length === 1
-        ? this.selectedFiles[0].name
-        : `${this.selectedFiles.length} documents`
-    );
+    input.value = '';
   }
 
   uploadDocument(): void {
@@ -536,14 +564,55 @@ export class Dashboard implements OnInit, OnDestroy {
     this.clearMessages();
 
     const files = [...this.selectedFiles];
-    from(files)
+    const uploadItems = files.map((file, index) => ({
+      id: `${Date.now()}-${index}`,
+      fileName: file.name,
+      fileSize: file.size,
+      progress: 0,
+      status: 'QUEUED' as UploadStatus
+    }));
+    this.clearUploadDismissTimer();
+    this.uploadItems.set(uploadItems);
+    this.uploadPanelCollapsed.set(false);
+
+    from(files.map((file, index) => ({ file, item: uploadItems[index] })))
       .pipe(
-        concatMap((file) => this.documentService.uploadCompanyDocument(companyId, file).pipe(
-          map((document) => ({ document, error: null as unknown })),
-          catchError((error) => of({ document: null, error }))
+        concatMap(({ file, item }) => this.documentService.uploadCompanyDocument(companyId, file).pipe(
+          tap((event) => {
+            if (event.type === HttpEventType.Sent) {
+              this.updateUploadItem(item.id, { status: 'UPLOADING' });
+            } else if (event.type === HttpEventType.UploadProgress) {
+              const total = event.total ?? file.size;
+              const progress = total > 0 ? Math.min(100, Math.round((event.loaded / total) * 100)) : 0;
+              this.updateUploadItem(item.id, {
+                progress,
+                status: progress === 100 ? 'PROCESSING' : 'UPLOADING'
+              });
+            }
+          }),
+          last(),
+          map((event) => {
+            if (event.type !== HttpEventType.Response || !event.body) {
+              throw new Error('The upload completed without a document response.');
+            }
+            this.updateUploadItem(item.id, { progress: 100, status: 'SUCCESS' });
+            return { document: event.body, error: null as unknown };
+          }),
+          catchError((error) => {
+            this.updateUploadItem(item.id, {
+              status: 'FAILED',
+              error: this.messageFromError(error)
+            });
+            return of({ document: null, error });
+          })
         )),
         toArray(),
-        finalize(() => this.isUploadingDocument.set(false))
+        finalize(() => {
+          this.isUploadingDocument.set(false);
+          if (!this.uploadItems().some((item) => item.status === 'FAILED')) {
+            this.uploadDismissTimer = setTimeout(() => this.dismissUploadPanel(), 6000);
+          }
+        })
       )
       .subscribe({
         next: (results) => {
@@ -552,7 +621,6 @@ export class Dashboard implements OnInit, OnDestroy {
           this.documents.update((documents) => [...uploaded, ...documents]);
           this.documentCache.set(companyId, this.documents());
           this.selectedFiles = [];
-          this.selectedFileName.set('');
           if (uploaded.length) {
             this.successMessage.set(`${uploaded.length} ${uploaded.length === 1 ? 'document' : 'documents'} uploaded.`);
           }
@@ -562,6 +630,40 @@ export class Dashboard implements OnInit, OnDestroy {
         },
         error: (error) => this.errorMessage.set(this.messageFromError(error))
       });
+  }
+
+  toggleUploadPanel(): void {
+    this.uploadPanelCollapsed.update((collapsed) => !collapsed);
+  }
+
+  dismissUploadPanel(): void {
+    if (!this.uploadsComplete()) return;
+    this.clearUploadDismissTimer();
+    this.uploadItems.set([]);
+    this.uploadPanelCollapsed.set(false);
+  }
+
+  uploadStatusLabel(item: DocumentUploadItem): string {
+    switch (item.status) {
+      case 'QUEUED': return 'Waiting';
+      case 'UPLOADING': return `${item.progress}%`;
+      case 'PROCESSING': return 'Processing';
+      case 'SUCCESS': return 'Uploaded';
+      case 'FAILED': return 'Failed';
+    }
+  }
+
+  private updateUploadItem(id: string, updates: Partial<DocumentUploadItem>): void {
+    this.uploadItems.update((items) => items.map((item) =>
+      item.id === id ? { ...item, ...updates } : item
+    ));
+  }
+
+  private clearUploadDismissTimer(): void {
+    if (this.uploadDismissTimer) {
+      clearTimeout(this.uploadDismissTimer);
+      this.uploadDismissTimer = undefined;
+    }
   }
 
   toggleDocumentSelection(document: Document): void {

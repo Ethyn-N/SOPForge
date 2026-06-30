@@ -85,13 +85,68 @@ public class OllamaSopGenerator implements AiSopGenerator {
                 ollamaOptions()
         );
 
+        String content;
         try {
-            return parseEvidence(callOllama(restClient, request));
+            content = callOllama(restClient, request);
         } catch (RestClientException exception) {
             throw new IllegalStateException("AI evidence extraction failed. Make sure Ollama is running.");
+        }
+
+        try {
+            return parseEvidence(content);
         } catch (JsonProcessingException | InvalidEvidenceException exception) {
-            log.warn("Ollama returned invalid evidence JSON. Problem: {}", exception.getMessage());
-            throw new IllegalStateException("AI could not extract reliable evidence from the selected documents.");
+            log.warn("Ollama returned invalid evidence JSON. Problem: {}. Response preview: {}",
+                    exception.getMessage(),
+                    preview(content));
+            return retryEvidenceExtraction(
+                    restClient,
+                    documents,
+                    requestedTitle,
+                    instructions,
+                    exception.getMessage()
+            );
+        }
+    }
+
+    private EvidenceBundle retryEvidenceExtraction(
+            RestClient restClient,
+            List<Document> documents,
+            String requestedTitle,
+            String instructions,
+            String firstFailure
+    ) {
+        OllamaChatRequest retryRequest = new OllamaChatRequest(
+                aiProperties.getModel(),
+                List.of(
+                        new OllamaMessage("system", evidenceSystemPrompt()),
+                        new OllamaMessage("user", evidenceRetryPrompt(
+                                documents,
+                                requestedTitle,
+                                instructions,
+                                firstFailure
+                        ))
+                ),
+                evidenceSchema(),
+                false,
+                ollamaOptions()
+        );
+
+        String retryContent;
+        try {
+            retryContent = callOllama(restClient, retryRequest);
+        } catch (RestClientException exception) {
+            throw new IllegalStateException("AI evidence extraction failed. Make sure Ollama is running.");
+        }
+
+        try {
+            return parseEvidence(retryContent);
+        } catch (JsonProcessingException | InvalidEvidenceException exception) {
+            log.warn("Ollama evidence retry failed. Problem: {}. Response preview: {}",
+                    exception.getMessage(),
+                    preview(retryContent));
+            throw new IllegalStateException(
+                    "AI could not extract reliable evidence after a second attempt: " + exception.getMessage()
+            );
         }
     }
 
@@ -133,6 +188,40 @@ public class OllamaSopGenerator implements AiSopGenerator {
                 Selected source evidence:
                 %s
                 """.formatted(
+                displayValue(requestedTitle),
+                displayValue(instructions),
+                sourceDocumentsText(documents)
+        );
+    }
+
+    private String evidenceRetryPrompt(
+            List<Document> documents,
+            String requestedTitle,
+            String instructions,
+            String firstFailure
+    ) {
+        return """
+                Retry evidence extraction because the first response was unusable.
+                First failure: %s
+
+                Requested title: %s
+                User instructions: %s
+
+                Extract every clearly supported requirement relevant to the requested topic. Business evidence includes
+                documented duties, preparation steps, operating or cooking steps, sanitation controls, safety rules,
+                quality checks, timing, temperatures, storage instructions, records, and escalation requirements.
+                A source does not need to use the words "SOP", "must", or "shall" for a documented action or
+                responsibility to count. Preserve its original strength and do not turn suggestions into mandates.
+                Do not return an empty requirements array when the source contains relevant actions or controls.
+                Use the exact source filename supplied below for sourceFile. Do not invent facts or source locations.
+
+                For every requirement, populate all schema fields. Use an empty string when a condition or acceptance
+                criterion is not stated. Use "other" when phase or type does not match a listed category.
+
+                Selected source evidence:
+                %s
+                """.formatted(
+                displayValue(firstFailure),
                 displayValue(requestedTitle),
                 displayValue(instructions),
                 sourceDocumentsText(documents)

@@ -1,4 +1,5 @@
 import { signal } from '@angular/core';
+import { HttpEventType, HttpResponse } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, Router } from '@angular/router';
 import { of } from 'rxjs';
@@ -184,6 +185,31 @@ describe('Dashboard', () => {
 
     dashboard.showDocuments();
     expect(dashboard.activeView()).toBe('documents');
+  });
+
+  it('tracks document upload progress and adds the completed document', () => {
+    const uploadedDocument = documentFixture(12, 1, 'safety-guide.pdf');
+    documentService.uploadCompanyDocument.mockReturnValue(of(
+      { type: HttpEventType.Sent },
+      { type: HttpEventType.UploadProgress, loaded: 50, total: 100 },
+      new HttpResponse({ body: uploadedDocument, status: 200 })
+    ));
+    fixture = TestBed.createComponent(Dashboard);
+    fixture.detectChanges();
+    const dashboard = fixture.componentInstance;
+    dashboard['selectedFiles'] = [new File(['test'], 'safety-guide.pdf', { type: 'application/pdf' })];
+
+    dashboard.uploadDocument();
+    fixture.detectChanges();
+
+    expect(dashboard.uploadItems()[0]).toMatchObject({
+      fileName: 'safety-guide.pdf',
+      progress: 100,
+      status: 'SUCCESS'
+    });
+    expect(dashboard.documents()[0]).toEqual(uploadedDocument);
+    expect((fixture.nativeElement as HTMLElement).querySelector('.upload-manager')?.textContent)
+      .toContain('1 upload complete');
   });
 
   it('filters the SOP library by workflow status', () => {

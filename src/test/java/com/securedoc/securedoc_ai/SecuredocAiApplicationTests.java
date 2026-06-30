@@ -11,7 +11,9 @@ import org.springframework.test.context.TestPropertySource;
 		"spring.datasource.username=sa",
 		"spring.datasource.password=",
 		"spring.jpa.hibernate.ddl-auto=validate",
-		"spring.jpa.show-sql=false"
+		"spring.jpa.show-sql=false",
+		"spring.flyway.locations=classpath:db/migration/common,classpath:db/migration/h2",
+		"securedoc.ai.ollama.semantic-search-enabled=false"
 })
 class SecuredocAiApplicationTests {
 
